@@ -48,6 +48,15 @@ void light_driver_set_power(bool power)
     ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
 }
 
+void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
+{
+    s_red = red;
+    s_green = green;
+    s_blue = blue;
+    ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, 0, s_red, s_green, s_blue));
+    ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
+}
+
 void light_driver_init(bool power)
 {
     led_strip_config_t led_strip_conf = {

@@ -65,6 +65,15 @@ void light_driver_set_power(bool power);
 */
 void light_driver_init(bool power);
 
+/**
+* @brief Set light color (RGB).
+*
+* @param red   Red intensity (0-255)
+* @param green Green intensity (0-255)
+* @param blue  Blue intensity (0-255)
+*/
+void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
