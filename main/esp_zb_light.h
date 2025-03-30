@@ -16,6 +16,7 @@
 #include "light_driver.h"
 #include "zcl_utility.h"
 
+
 /* Zigbee configuration */
 #define INSTALLCODE_POLICY_ENABLE       false                                /* enable the install code policy for security */
 #define ED_AGING_TIMEOUT                ESP_ZB_ED_AGING_TIMEOUT_64MIN        /* aging timeout of device */

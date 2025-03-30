@@ -49,7 +49,7 @@ extern "C" {
 
 /* LED strip configuration */
 #define CONFIG_EXAMPLE_STRIP_LED_GPIO   8
-#define CONFIG_EXAMPLE_STRIP_LED_NUMBER 1
+#define CONFIG_EXAMPLE_STRIP_LED_NUMBER 14
 
 /**
 * @brief Set light power (on/off).
@@ -73,6 +73,14 @@ void light_driver_init(bool power);
 * @param blue  Blue intensity (0-255)
 */
 void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue);
+
+
+/**
+ * @brief Set light level (0-255).  
+ *
+ * @param level Light level (0-255)
+ */
+void light_driver_set_level(uint8_t level);
 
 #ifdef __cplusplus
 } // extern "C"

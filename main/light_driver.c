@@ -41,6 +41,7 @@
 
 static led_strip_handle_t s_led_strip;
 static uint8_t s_red = 255, s_green = 255, s_blue = 255;
+static float s_level = 1;
 
 void light_driver_set_power(bool power)
 {
@@ -53,7 +54,19 @@ void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
     s_red = red;
     s_green = green;
     s_blue = blue;
-    ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, 0, s_red, s_green, s_blue));
+    for (int i = 0; i < CONFIG_EXAMPLE_STRIP_LED_NUMBER; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, i,  (uint8_t)(s_red * s_level), (uint8_t)(s_green * s_level), (uint8_t)(s_blue * s_level)));
+    }
+    ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
+}
+
+void light_driver_set_level(uint8_t level)
+{
+    s_level = level / 255.0;
+    // for all leds
+    for (int i = 0; i < CONFIG_EXAMPLE_STRIP_LED_NUMBER; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, i, (uint8_t)(s_red * s_level), (uint8_t)(s_green * s_level), (uint8_t)(s_blue * s_level)));
+    }
     ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
 }
 
