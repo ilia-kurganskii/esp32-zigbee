@@ -63,7 +63,7 @@ void light_driver_set_power(bool power);
 *
 * @param power power on/off
 */
-void light_driver_init(bool power);
+void light_driver_init();
 
 /**
 * @brief Set light color (RGB).
@@ -81,6 +81,7 @@ void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue);
  * @param level Light level (0-255)
  */
 void light_driver_set_level(uint8_t level);
+
 
 #ifdef __cplusplus
 } // extern "C"
