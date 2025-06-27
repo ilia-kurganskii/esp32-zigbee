@@ -1,6 +1,6 @@
 /**
- * Super Simple Multistate Value Zigbee Device
- * Based on ESP-IDF HA_on_off_light example
+ * WTW 3-Channel GPIO Controller
+ * Receives multistate commands from Zigbee2MQTT to control GPIO outputs
  */
 
 #include <stdio.h>
@@ -13,8 +13,21 @@
 #include "esp_zigbee_core.h"
 #include "zcl/esp_zigbee_zcl_command.h"
 #include "ha/esp_zigbee_ha_standard.h"
+#include "driver/gpio.h"
 #include "main.h"
 
+
+// GPIO output pin definitions
+#define NIGHT_OUTPUT_GPIO   GPIO_NUM_0
+#define DAY_OUTPUT_GPIO     GPIO_NUM_1  
+#define SHOWER_OUTPUT_GPIO  GPIO_NUM_2
+
+// Output states
+typedef enum {
+    STATE_NIGHT = 0,
+    STATE_DAY = 1,
+    STATE_SHOWER = 2
+} output_state_t;
 
 static const char *get_cluster_name(uint16_t cluster_id) {
     switch (cluster_id) {
@@ -35,10 +48,10 @@ static const char *get_multistate_attr_name(uint16_t attr_id) {
 }
 
 
-#define TAG "SIMPLE_MULTISTATE"
+#define TAG "WTW_CONTROLLER"
 
-// Simple multistate value: 1=Off, 2=Low, 3=High
-static uint16_t multistate_value = 1;
+// Current output state (0=night, 1=day, 2=shower)
+static uint16_t current_output_state = 0;
 
 // Basic device info
 static uint8_t manufacturer[] = {6, 'E', 'S', 'P', '-', '3', '2'};
@@ -80,6 +93,61 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             break;
     }
 }
+// Set GPIO outputs based on state
+static void set_gpio_outputs(output_state_t state)
+{
+    const char* state_names[] = {"night", "day", "shower"};
+    ESP_LOGI(TAG, "Setting GPIO outputs for %s mode (state %d)", state_names[state], state);
+
+    // Turn off all outputs first
+    gpio_set_level(NIGHT_OUTPUT_GPIO, 0);
+    gpio_set_level(DAY_OUTPUT_GPIO, 0);
+    gpio_set_level(SHOWER_OUTPUT_GPIO, 0);
+
+    // Turn on the selected output
+    switch (state) {
+        case STATE_NIGHT:
+            gpio_set_level(NIGHT_OUTPUT_GPIO, 1);
+            ESP_LOGI(TAG, "Night output ON");
+            break;
+        case STATE_DAY:
+            gpio_set_level(DAY_OUTPUT_GPIO, 1);
+            ESP_LOGI(TAG, "Day output ON");
+            break;
+        case STATE_SHOWER:
+            gpio_set_level(SHOWER_OUTPUT_GPIO, 1);
+            ESP_LOGI(TAG, "Shower output ON");
+            break;
+        default:
+            ESP_LOGW(TAG, "Invalid state: %d", state);
+            break;
+    }
+    
+    current_output_state = state;
+}
+
+// Initialize GPIO outputs
+static void init_gpio_outputs(void)
+{
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = ((1ULL << NIGHT_OUTPUT_GPIO) | 
+                        (1ULL << DAY_OUTPUT_GPIO) | 
+                        (1ULL << SHOWER_OUTPUT_GPIO)),
+        .pull_down_en = 0,
+        .pull_up_en = 0,
+    };
+    gpio_config(&io_conf);
+    
+    // Initialize all outputs to OFF
+    set_gpio_outputs(STATE_NIGHT); // Default to night mode
+    
+    ESP_LOGI(TAG, "GPIO outputs initialized: Night=%d, Day=%d, Shower=%d", 
+             NIGHT_OUTPUT_GPIO, DAY_OUTPUT_GPIO, SHOWER_OUTPUT_GPIO);
+}
+
+// Attribute handler for receiving commands
 static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t *message)
 {
     ESP_LOGI(TAG, "Attribute handler called");
@@ -102,12 +170,10 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             uint16_t new_value = *(uint16_t*)message->attribute.data.value;
             ESP_LOGI(TAG, "-> Set Present Value to %d", new_value);
             
-            if (new_value >= 1 && new_value <= 3) {
-                multistate_value = new_value;
-                const char* states[] = {"", "Off", "Low", "High"};
-                ESP_LOGI(TAG, "State changed to: %s (%d)", states[new_value], new_value);
+            if (new_value >= 0 && new_value <= 2) {
+                set_gpio_outputs((output_state_t)new_value);
             } else {
-                ESP_LOGW(TAG, "Invalid Present Value received: %d", new_value);
+                ESP_LOGW(TAG, "Invalid Present Value received: %d (valid range: 0-2)", new_value);
             }
         } else if (attr_id == ESP_ZB_ZCL_ATTR_MULTI_VALUE_OUT_OF_SERVICE_ID) {
             bool out_of_service = *(bool*)message->attribute.data.value;
@@ -154,19 +220,20 @@ static void create_zigbee_device(void)
     esp_zb_attribute_list_t *identify_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY);
     esp_zb_identify_cluster_add_attr(identify_cluster, ESP_ZB_ZCL_ATTR_IDENTIFY_IDENTIFY_TIME_ID, &(uint16_t){0});
     
-    esp_zb_multistate_value_cluster_cfg_t switch_value_cfg = {
-            .number_of_states = 3,
-            .out_of_service = false,
-            .present_value = 1,
-            .status_flags = 0,
+    // Multistate Value cluster for receiving commands
+    esp_zb_multistate_value_cluster_cfg_t multistate_cfg = {
+        .number_of_states = 3,
+        .out_of_service = false,
+        .present_value = 0,
+        .status_flags = 0,
     };
-    esp_zb_attribute_list_t *esp_zb_multistate_cluster = esp_zb_multistate_value_cluster_create(&switch_value_cfg);
+    esp_zb_attribute_list_t *multistate_cluster = esp_zb_multistate_value_cluster_create(&multistate_cfg);
 
     // Create cluster list
     esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
     esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_identify_cluster(cluster_list, identify_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-    esp_zb_cluster_list_add_multistate_value_cluster(cluster_list, esp_zb_multistate_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_multistate_value_cluster(cluster_list, multistate_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     
     // Create endpoint
     esp_zb_endpoint_config_t endpoint_config = {
@@ -180,7 +247,7 @@ static void create_zigbee_device(void)
     esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
     
-    ESP_LOGI(TAG, "Simple multistate device created");
+    ESP_LOGI(TAG, "WTW GPIO controller device created");
 }
 
 // Main Zigbee task
@@ -189,6 +256,9 @@ static void zigbee_main_task(void *pvParameters)
     // Initialize Zigbee stack
     esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
     esp_zb_init(&zb_nwk_cfg);
+    
+    // Initialize GPIO outputs
+    init_gpio_outputs();
     
     // Create device
     create_zigbee_device();
@@ -211,7 +281,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
     
-    ESP_LOGI(TAG, "Starting simple multistate Zigbee device");
+    ESP_LOGI(TAG, "Starting WTW 3-channel GPIO Zigbee controller");
     
     // Start Zigbee task
     xTaskCreate(zigbee_main_task, "Zigbee_main", 4096, NULL, 5, NULL);

@@ -6,18 +6,15 @@ import {getFromLookup, getKey} from "zigbee-herdsman-converters/lib/utils";
 
 /** @type{Record<string, import('zigbee-herdsman-converters/lib/types').Fz.Converter>} */
 const fzLocal = {
-    diyruz_freepad_clicks: {
-        cluster: "genMultistateInput",
+    wtw_multistate_report: {
+        cluster: "genMultistateValue",
         type: ["readResponse", "attributeReport"],
         convert: (model, msg, publish, options, meta) => {
-            const ep = model.endpoint?.(msg.device);
-
-            if (ep) {
-                const button = getKey(ep, msg.endpoint.ID);
+            if (msg.data.hasOwnProperty('presentValue')) {
                 const lookup = {0: "night", 1: "day", 2: "shower"};
-                const clicks = msg.data.presentValue;
-                const action = lookup[clicks] ? lookup[clicks] : `non_found_${clicks}`;
-                return {action: `${button}_${action}`};
+                const state = msg.data.presentValue;
+                const mode = lookup[state] !== undefined ? lookup[state] : `unknown_${state}`;
+                return {switch_actions: mode};
             }
         },
     },
@@ -25,27 +22,23 @@ const fzLocal = {
 
 /** @type{Record<string, import('zigbee-herdsman-converters/lib/types').Tz.Converter>} */
 const tzLocal = {
-    diyruz_freepad_on_off_config: {
+    wtw_multistate_control: {
         key: ["switch_actions"],
         convertGet: async (entity, key, meta) => {
-            await entity.read("genOnOffSwitchCfg", ["switchActions"]);
+            await entity.read("genMultistateValue", ["presentValue"]);
         },
         convertSet: async (entity, key, value, meta) => {
             const switchActionsLookup = {
-                night: 0x00,
-                day: 0x01,
-                shower: 0x02,
+                night: 0,
+                day: 1,
+                shower: 2,
             };
             const intVal = Number(value);
-            const switchActions = getFromLookup(value, switchActionsLookup, intVal);
+            const presentValue = getFromLookup(value, switchActionsLookup, intVal);
 
-            const payloads = {
-                switch_actions: {switchActions},
-            };
+            await entity.write("genMultistateValue", {presentValue});
 
-            await entity.write("genOnOffSwitchCfg", payloads[key]);
-
-            return {state: {[`${key}`]: value}};
+            return {state: {[key]: value}};
         },
     },
 };
@@ -55,14 +48,14 @@ export default {
     zigbeeModel: ['WTW'],
     model: 'WTW',
     vendor: 'ESP-32',
-    description: "[DiY 8/12/20 button keypad](http://modkam.ru/?p=1114)",
-    fromZigbee: [fzLocal.diyruz_freepad_clicks, diyruz_freepad_config, battery],
-    toZigbee: [tzLocal.diyruz_freepad_on_off_config, factory_reset],
+    description: "WTW 3-channel GPIO controller for night/day/shower modes",
+    fromZigbee: [fzLocal.wtw_multistate_report, battery],
+    toZigbee: [tzLocal.wtw_multistate_control, factory_reset],
     exposes: [presets.enum("switch_actions", access.ALL, ["day", "night", "shower"]).withEndpoint("button")],
     configure: async (device, coordinatorEndpoint, definition) => {
         for (const ep of device.endpoints) {
-            if (ep.outputClusters.includes(18)) {
-                await bind(ep, coordinatorEndpoint, ["genMultistateInput"]);
+            if (ep.inputClusters.includes(21)) {
+                await bind(ep, coordinatorEndpoint, ["genMultistateValue"]);
             }
         }
     },
