@@ -1,28 +1,74 @@
-const {postfixWithEndpointName} = require('zigbee-herdsman-converters/lib/utils');
-const exposes = require('zigbee-herdsman-converters/lib/exposes');
-const fz = require('zigbee-herdsman-converters/converters/fromZigbee');
-const tz = require('zigbee-herdsman-converters/converters/toZigbee');
-const ea = exposes.access;
-const reporting = require('zigbee-herdsman-converters/lib/reporting');
+import {battery, diyruz_freepad_config} from "zigbee-herdsman-converters/converters/fromZigbee";
+import {factory_reset} from "zigbee-herdsman-converters/converters/toZigbee";
+import {access, presets} from "zigbee-herdsman-converters/lib/exposes";
+import {bind} from "zigbee-herdsman-converters/lib/reporting";
+import {getFromLookup, getKey} from "zigbee-herdsman-converters/lib/utils";
 
-const definition = {
-    zigbeeModel: ['ESP32-WTW-Switch'],
-    model: 'ESP32-WTW-Switch',
-    vendor: 'COSMIKIN',
-    description: 'ESP32-WTW mode control device',
-    fromZigbee: [fz.ignore_basic_report, fz.multistate_value],
-    toZigbee: [tz.multistate_value],
-    exposes: [
-        // Mode control using multistate value (1=night, 2=daily, 3=full)
-        exposes.numeric('multistate_value', ea.ALL).withValueMin(1).withValueMax(3).withDescription('Mode: 1=night, 2=daily, 3=full'),
-    ],
-    endpoint: (device) => {
-        return {'default': 1};
-    },
-    configure: async (device, coordinatorEndpoint, logger) => {
-        const endpoint = device.getEndpoint(1);
-        await reporting.bind(endpoint, coordinatorEndpoint, ['msMultistateValue']);
+/** @type{Record<string, import('zigbee-herdsman-converters/lib/types').Fz.Converter>} */
+const fzLocal = {
+    diyruz_freepad_clicks: {
+        cluster: "genMultistateInput",
+        type: ["readResponse", "attributeReport"],
+        convert: (model, msg, publish, options, meta) => {
+            const ep = model.endpoint?.(msg.device);
+
+            if (ep) {
+                const button = getKey(ep, msg.endpoint.ID);
+                const lookup = {0: "night", 1: "day", 2: "shower"};
+                const clicks = msg.data.presentValue;
+                const action = lookup[clicks] ? lookup[clicks] : `non_found_${clicks}`;
+                return {action: `${button}_${action}`};
+            }
+        },
     },
 };
 
-module.exports = definition;
+/** @type{Record<string, import('zigbee-herdsman-converters/lib/types').Tz.Converter>} */
+const tzLocal = {
+    diyruz_freepad_on_off_config: {
+        key: ["switch_actions"],
+        convertGet: async (entity, key, meta) => {
+            await entity.read("genOnOffSwitchCfg", ["switchActions"]);
+        },
+        convertSet: async (entity, key, value, meta) => {
+            const switchActionsLookup = {
+                night: 0x00,
+                day: 0x01,
+                shower: 0x02,
+            };
+            const intVal = Number(value);
+            const switchActions = getFromLookup(value, switchActionsLookup, intVal);
+
+            const payloads = {
+                switch_actions: {switchActions},
+            };
+
+            await entity.write("genOnOffSwitchCfg", payloads[key]);
+
+            return {state: {[`${key}`]: value}};
+        },
+    },
+};
+
+/** @type{import('zigbee-herdsman-converters/lib/types').DefinitionWithExtend | import('zigbee-herdsman-converters/lib/types').DefinitionWithExtend[]} */
+export default {
+    zigbeeModel: ['WTW'],
+    model: 'WTW',
+    vendor: 'ESP-32',
+    description: "[DiY 8/12/20 button keypad](http://modkam.ru/?p=1114)",
+    fromZigbee: [fzLocal.diyruz_freepad_clicks, diyruz_freepad_config, battery],
+    toZigbee: [tzLocal.diyruz_freepad_on_off_config, factory_reset],
+    exposes: [presets.enum("switch_actions", access.ALL, ["day", "night", "shower"]).withEndpoint("button")],
+    configure: async (device, coordinatorEndpoint, definition) => {
+        for (const ep of device.endpoints) {
+            if (ep.outputClusters.includes(18)) {
+                await bind(ep, coordinatorEndpoint, ["genMultistateInput"]);
+            }
+        }
+    },
+    endpoint: (device) => {
+        return {
+            button: 1,
+        };
+    },
+};

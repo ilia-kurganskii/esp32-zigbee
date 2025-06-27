@@ -15,6 +15,26 @@
 #include "ha/esp_zigbee_ha_standard.h"
 #include "main.h"
 
+
+static const char *get_cluster_name(uint16_t cluster_id) {
+    switch (cluster_id) {
+        case ESP_ZB_ZCL_CLUSTER_ID_BASIC: return "Basic";
+        case ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY: return "Identify";
+        case ESP_ZB_ZCL_CLUSTER_ID_MULTI_VALUE: return "Multistate Value";
+        default: return "Unknown";
+    }
+}
+
+static const char *get_multistate_attr_name(uint16_t attr_id) {
+    switch (attr_id) {
+        case ESP_ZB_ZCL_ATTR_MULTI_VALUE_PRESENT_VALUE_ID: return "Present Value";
+        case ESP_ZB_ZCL_ATTR_MULTI_VALUE_OUT_OF_SERVICE_ID: return "Out of Service";
+        case ESP_ZB_ZCL_ATTR_MULTI_VALUE_STATUS_FLAGS_ID: return "Status Flags";
+        default: return "Unknown Attribute";
+    }
+}
+
+
 #define TAG "SIMPLE_MULTISTATE"
 
 // Simple multistate value: 1=Off, 2=Low, 3=High
@@ -60,34 +80,51 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             break;
     }
 }
-
-// Handle attribute changes
 static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t *message)
 {
+    ESP_LOGI(TAG, "Attribute handler called");
+
     if (!message || message->info.status != ESP_ZB_ZCL_STATUS_SUCCESS) {
+        ESP_LOGE(TAG, "Invalid attribute message or status not successful");
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_LOGI(TAG, "Received: endpoint(0x%x), cluster(0x%x), attribute(0x%x)", 
-             message->info.dst_endpoint, message->info.cluster, message->attribute.id);
+    uint16_t cluster = message->info.cluster;
+    uint16_t attr_id = message->attribute.id;
 
-    // Handle multistate value changes
-    if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_MULTI_VALUE &&
-        message->attribute.id == ESP_ZB_ZCL_ATTR_MULTI_VALUE_PRESENT_VALUE_ID) {
-        
-        uint16_t new_value = *(uint16_t*)message->attribute.data.value;
-        
-        if (new_value >= 1 && new_value <= 3) {
-            multistate_value = new_value;
-            const char* states[] = {"", "Off", "Low", "High"};
-            ESP_LOGI(TAG, "State changed to: %s (%d)", states[new_value], new_value);
+    ESP_LOGI(TAG, "Zigbee2MQTT Command Received: Cluster = 0x%04x (%s), Attribute = 0x%04x (%s), Endpoint = 0x%02x",
+             cluster, get_cluster_name(cluster), attr_id,
+             cluster == ESP_ZB_ZCL_CLUSTER_ID_MULTI_VALUE ? get_multistate_attr_name(attr_id) : "Unknown",
+             message->info.dst_endpoint);
+
+    if (cluster == ESP_ZB_ZCL_CLUSTER_ID_MULTI_VALUE) {
+        if (attr_id == ESP_ZB_ZCL_ATTR_MULTI_VALUE_PRESENT_VALUE_ID) {
+            uint16_t new_value = *(uint16_t*)message->attribute.data.value;
+            ESP_LOGI(TAG, "-> Set Present Value to %d", new_value);
+            
+            if (new_value >= 1 && new_value <= 3) {
+                multistate_value = new_value;
+                const char* states[] = {"", "Off", "Low", "High"};
+                ESP_LOGI(TAG, "State changed to: %s (%d)", states[new_value], new_value);
+            } else {
+                ESP_LOGW(TAG, "Invalid Present Value received: %d", new_value);
+            }
+        } else if (attr_id == ESP_ZB_ZCL_ATTR_MULTI_VALUE_OUT_OF_SERVICE_ID) {
+            bool out_of_service = *(bool*)message->attribute.data.value;
+            ESP_LOGI(TAG, "-> Set Out Of Service to %s", out_of_service ? "true" : "false");
+        } else if (attr_id == ESP_ZB_ZCL_ATTR_MULTI_VALUE_STATUS_FLAGS_ID) {
+            uint8_t flags = *(uint8_t*)message->attribute.data.value;
+            ESP_LOGI(TAG, "-> Set Status Flags to 0x%02x", flags);
         } else {
-            ESP_LOGW(TAG, "Invalid state value: %d", new_value);
+            ESP_LOGW(TAG, "Unhandled multistate attribute ID: 0x%04x", attr_id);
         }
+    } else {
+        ESP_LOGW(TAG, "Unhandled cluster ID: 0x%04x", cluster);
     }
-    
+
     return ESP_OK;
 }
+
 
 // Action handler
 static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id, const void *message)
