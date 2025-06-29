@@ -17,10 +17,9 @@
 #include "main.h"
 
 
-// GPIO output pin definitions
-#define NIGHT_OUTPUT_GPIO   GPIO_NUM_0
-#define DAY_OUTPUT_GPIO     GPIO_NUM_1  
-#define SHOWER_OUTPUT_GPIO  GPIO_NUM_2
+// GPIO output pin definitions for 2-relay module
+#define RELAY1_GPIO   GPIO_NUM_2  // IN1 - Used for Day and Shower modes
+#define RELAY2_GPIO   GPIO_NUM_3  // IN2 - Used for Shower mode only
 
 // Output states
 typedef enum {
@@ -51,7 +50,7 @@ static const char *get_multistate_attr_name(uint16_t attr_id) {
 #define TAG "WTW_CONTROLLER"
 
 // Current output state (0=night, 1=day, 2=shower)
-static uint16_t current_output_state = 0;
+static uint16_t current_output_state = 1; // Default to day mode
 
 // Basic device info
 static uint8_t manufacturer[] = {6, 'E', 'S', 'P', '-', '3', '2'};
@@ -93,30 +92,31 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             break;
     }
 }
-// Set GPIO outputs based on state
-static void set_gpio_outputs(output_state_t state)
+// Set relay outputs based on state
+static void set_relay_outputs(output_state_t state)
 {
     const char* state_names[] = {"night", "day", "shower"};
-    ESP_LOGI(TAG, "Setting GPIO outputs for %s mode (state %d)", state_names[state], state);
+    ESP_LOGI(TAG, "Setting relay outputs for %s mode (state %d)", state_names[state], state);
 
-    // Turn off all outputs first
-    gpio_set_level(NIGHT_OUTPUT_GPIO, 0);
-    gpio_set_level(DAY_OUTPUT_GPIO, 0);
-    gpio_set_level(SHOWER_OUTPUT_GPIO, 0);
-
-    // Turn on the selected output
+    // Control relays based on your logic:
+    // Night: Relay1=OFF, Relay2=OFF
+    // Day: Relay1=ON, Relay2=OFF  
+    // Shower: Relay1=ON, Relay2=ON
     switch (state) {
         case STATE_NIGHT:
-            gpio_set_level(NIGHT_OUTPUT_GPIO, 1);
-            ESP_LOGI(TAG, "Night output ON");
+            gpio_set_level(RELAY1_GPIO, 1);  // Relay 1 OFF
+            gpio_set_level(RELAY2_GPIO, 1);  // Relay 2 OFF
+            ESP_LOGI(TAG, "Night mode: Both relays OFF");
             break;
         case STATE_DAY:
-            gpio_set_level(DAY_OUTPUT_GPIO, 1);
-            ESP_LOGI(TAG, "Day output ON");
+            gpio_set_level(RELAY1_GPIO, 0);  // Relay 1 ON
+            gpio_set_level(RELAY2_GPIO, 1);  // Relay 2 OFF
+            ESP_LOGI(TAG, "Day mode: Relay1=ON, Relay2=OFF");
             break;
         case STATE_SHOWER:
-            gpio_set_level(SHOWER_OUTPUT_GPIO, 1);
-            ESP_LOGI(TAG, "Shower output ON");
+            gpio_set_level(RELAY1_GPIO, 0);  // Relay 1 ON
+            gpio_set_level(RELAY2_GPIO, 0);  // Relay 2 ON
+            ESP_LOGI(TAG, "Shower mode: Both relays ON");
             break;
         default:
             ESP_LOGW(TAG, "Invalid state: %d", state);
@@ -126,25 +126,27 @@ static void set_gpio_outputs(output_state_t state)
     current_output_state = state;
 }
 
-// Initialize GPIO outputs
-static void init_gpio_outputs(void)
+// Initialize relay GPIO outputs
+static void init_relay_outputs(void)
 {
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = ((1ULL << NIGHT_OUTPUT_GPIO) | 
-                        (1ULL << DAY_OUTPUT_GPIO) | 
-                        (1ULL << SHOWER_OUTPUT_GPIO)),
-        .pull_down_en = 0,
+        .pin_bit_mask = ((1ULL << RELAY1_GPIO) | (1ULL << RELAY2_GPIO)),
+        .pull_down_en = 1,  // Enable pull-down for stable LOW when OFF
         .pull_up_en = 0,
     };
     gpio_config(&io_conf);
     
-    // Initialize all outputs to OFF
-    set_gpio_outputs(STATE_NIGHT); // Default to night mode
+    // Set drive strength to maximum for optocouplers
+    gpio_set_drive_capability(RELAY1_GPIO, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(RELAY2_GPIO, GPIO_DRIVE_CAP_3);
     
-    ESP_LOGI(TAG, "GPIO outputs initialized: Night=%d, Day=%d, Shower=%d", 
-             NIGHT_OUTPUT_GPIO, DAY_OUTPUT_GPIO, SHOWER_OUTPUT_GPIO);
+    // Initialize to day mode (Relay1=ON, Relay2=OFF)
+    set_relay_outputs(STATE_DAY);
+    
+    ESP_LOGI(TAG, "CV-021 relay outputs initialized: Relay1=%d, Relay2=%d", 
+             RELAY1_GPIO, RELAY2_GPIO);
 }
 
 // Attribute handler for receiving commands
@@ -171,7 +173,7 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             ESP_LOGI(TAG, "-> Set Present Value to %d", new_value);
             
             if (new_value >= 0 && new_value <= 2) {
-                set_gpio_outputs((output_state_t)new_value);
+                set_relay_outputs((output_state_t)new_value);
             } else {
                 ESP_LOGW(TAG, "Invalid Present Value received: %d (valid range: 0-2)", new_value);
             }
@@ -224,7 +226,7 @@ static void create_zigbee_device(void)
     esp_zb_multistate_value_cluster_cfg_t multistate_cfg = {
         .number_of_states = 3,
         .out_of_service = false,
-        .present_value = 0,
+        .present_value = 1, // Default to day mode
         .status_flags = 0,
     };
     esp_zb_attribute_list_t *multistate_cluster = esp_zb_multistate_value_cluster_create(&multistate_cfg);
@@ -247,7 +249,7 @@ static void create_zigbee_device(void)
     esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
     
-    ESP_LOGI(TAG, "WTW GPIO controller device created");
+    ESP_LOGI(TAG, "WTW 2-relay controller device created");
 }
 
 // Main Zigbee task
@@ -257,8 +259,8 @@ static void zigbee_main_task(void *pvParameters)
     esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
     esp_zb_init(&zb_nwk_cfg);
     
-    // Initialize GPIO outputs
-    init_gpio_outputs();
+    // Initialize relay outputs
+    init_relay_outputs();
     
     // Create device
     create_zigbee_device();
@@ -281,7 +283,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
     
-    ESP_LOGI(TAG, "Starting WTW 3-channel GPIO Zigbee controller");
+    ESP_LOGI(TAG, "Starting WTW 2-relay Zigbee controller");
     
     // Start Zigbee task
     xTaskCreate(zigbee_main_task, "Zigbee_main", 4096, NULL, 5, NULL);
