@@ -10,6 +10,22 @@ management:
     health:
       show-details: when-authorized
 
+# Telemetry service configuration
+telemetry:
+  server:
+    port: 8080
+    host: "0.0.0.0"
+  validation:
+    prometheus-whitelist: "esp32_temperature_celsius,esp32_memory_usage_bytes,esp32_wifi_signal_strength"
+    max-otel-batch-size: 1048576
+    max-events-array-size: 100
+  grafana:
+    collector-url: "http://localhost:3000/api/push"
+    timeout: "30s"
+    retry-enabled: false
+  security:
+    api-keys: "default-key-change-in-production"
+
 logging:
   level:
     com.telemetry: INFO
