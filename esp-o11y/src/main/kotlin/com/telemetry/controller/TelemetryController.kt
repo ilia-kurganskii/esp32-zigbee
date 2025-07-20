@@ -2,6 +2,7 @@ package com.telemetry.controller
 
 import com.telemetry.model.*
 import com.telemetry.service.ValidationService
+import org.slf4j.MDC
 import io.micrometer.core.annotation.Timed
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -27,9 +28,13 @@ class TelemetryController(
         @Valid @RequestBody request: TelemetryBatchRequest
     ): ResponseEntity<Any> {
         
-        logger.info("Received telemetry data from device: {}", request.deviceId)
+        // Set MDC context for this request
+        MDC.put("deviceId", request.deviceId)
+        MDC.put("operation", "telemetry_request")
         
-        return try {
+        try {
+            logger.info("Received telemetry data from device: {}", request.deviceId)
+            
             // Validate the request using ValidationService
             val validationResult = validationService.validate(request)
             
@@ -39,14 +44,18 @@ class TelemetryController(
             // Create response based on validation results
             val response = createSuccessResponse(validationResult)
             
-            logger.info("Successfully processed telemetry data from device: {} with status: {}", 
-                       request.deviceId, response.status)
+            // Log successful processing
+            MDC.put("validated_metrics", response.validatedMetrics.toString())
+            MDC.put("warnings_count", (response.warnings?.size ?: 0).toString())
+            logger.info("Telemetry request processed successfully: status={}", response.status)
             
-            ResponseEntity.ok(response)
+            return ResponseEntity.ok(response)
             
         } catch (e: Exception) {
             logger.error("Unexpected error processing telemetry data from device: {}", request.deviceId, e)
             throw e
+        } finally {
+            MDC.clear()
         }
     }
 

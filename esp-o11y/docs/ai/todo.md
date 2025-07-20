@@ -187,7 +187,7 @@ This checklist corresponds to the implementation plan in `prompt_plan.md` and pr
   - [x] Used `@Timed` annotation for method-level timing
   - [x] Only created custom metrics for business-specific events
   - [x] Leveraged Spring Boot Actuator's Prometheus endpoint
-- [x] Git commit: feat: implement metrics collection with Spring Boot best practices (pending)
+- [x] Git commit: feat: implement metrics collection with Spring Boot best practices (7d44ccf)
 
 ---
 

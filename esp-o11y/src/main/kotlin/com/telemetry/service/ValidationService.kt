@@ -2,6 +2,7 @@ package com.telemetry.service
 
 import com.telemetry.config.TelemetryConfig
 import com.telemetry.model.*
+import org.slf4j.MDC
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import kotlin.math.min
@@ -60,7 +61,7 @@ class ValidationService(
             metricsService.recordValidationFailure(request.deviceId, error.type, error.message)
         }
 
-        // Log validation results
+        // Log validation results with structured logging
         logValidationResults(request, statistics, errors)
 
         return ValidationResult(
@@ -198,18 +199,22 @@ class ValidationService(
         statistics: ValidationStatistics,
         errors: List<ValidationError>
     ) {
-        logger.info(
-            "Validation completed for device {}: " +
-            "otel={}/{}, events={}/{}, prometheus={}/{}, " +
-            "dropped={}, truncatedOtel={}, truncatedEvents={}, errors={}",
-            request.deviceId,
-            statistics.validatedOtelMetrics, statistics.originalOtelMetrics,
-            statistics.validatedEvents, statistics.originalEvents,
-            statistics.validatedPrometheusMetrics, statistics.originalPrometheusMetrics,
-            statistics.droppedPrometheusMetrics,
-            statistics.truncatedOtel,
-            statistics.truncatedEvents,
-            errors.size
-        )
+        val errorMessages = errors.map { "${it.type.name}: ${it.message}" }
+        
+        // Log validation results with MDC context
+        MDC.put("deviceId", request.deviceId)
+        MDC.put("operation", "validation")
+        MDC.put("otel_events", statistics.validatedOtelMetrics.toString())
+        MDC.put("custom_events", statistics.validatedEvents.toString())
+        MDC.put("prometheus_metrics", statistics.validatedPrometheusMetrics.toString())
+        MDC.put("error_count", errors.size.toString())
+        
+        if (errors.isNotEmpty()) {
+            logger.warn("Validation completed with errors: {}", errorMessages.joinToString())
+        } else {
+            logger.info("Validation completed successfully")
+        }
+        
+        MDC.clear()
     }
 }

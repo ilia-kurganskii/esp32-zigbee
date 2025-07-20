@@ -36,6 +36,9 @@ dependencies {
     // Metrics and monitoring
     implementation("io.micrometer:micrometer-registry-prometheus")
     
+    // Structured logging
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+    
     // Testing
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.mockk:mockk:1.13.8")
