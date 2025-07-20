@@ -7,7 +7,10 @@ import org.springframework.stereotype.Service
 import kotlin.math.min
 
 @Service
-class ValidationService(private val config: TelemetryConfig) {
+class ValidationService(
+    private val config: TelemetryConfig,
+    private val metricsService: MetricsService
+) {
 
     private val logger = LoggerFactory.getLogger(ValidationService::class.java)
 
@@ -22,13 +25,13 @@ class ValidationService(private val config: TelemetryConfig) {
         // Note: API key validation is now handled by Spring Security
 
         // Validate and filter Prometheus metrics
-        val (validatedPrometheusMetrics, droppedPrometheusCount) = validatePrometheusMetrics(request.metrics, errors)
+        val (validatedPrometheusMetrics, droppedPrometheusCount) = validatePrometheusMetrics(request.metrics, errors, request.deviceId)
 
         // Validate and truncate OTEL data
-        val (validatedOtelMetrics, otelTruncated) = validateOtelMetrics(request.otel, errors)
+        val (validatedOtelMetrics, otelTruncated) = validateOtelMetrics(request.otel, errors, request.deviceId)
 
         // Validate and truncate events
-        val (validatedEvents, eventsTruncated) = validateEvents(request.events, errors)
+        val (validatedEvents, eventsTruncated) = validateEvents(request.events, errors, request.deviceId)
 
         // Create validated request
         val validatedRequest = request.copy(
@@ -52,6 +55,11 @@ class ValidationService(private val config: TelemetryConfig) {
 
         val isValid = true // All validation issues are now warnings, authentication handled by Spring Security
 
+        // Record validation failure metrics
+        errors.forEach { error ->
+            metricsService.recordValidationFailure(request.deviceId, error.type, error.message)
+        }
+
         // Log validation results
         logValidationResults(request, statistics, errors)
 
@@ -67,7 +75,8 @@ class ValidationService(private val config: TelemetryConfig) {
 
     private fun validatePrometheusMetrics(
         metrics: List<PrometheusMetric>?,
-        errors: MutableList<ValidationError>
+        errors: MutableList<ValidationError>,
+        deviceId: String
     ): Pair<List<PrometheusMetric>?, Int> {
         if (metrics == null) return null to 0
 
@@ -90,12 +99,18 @@ class ValidationService(private val config: TelemetryConfig) {
             }
         }
 
+        // Record metrics for dropped Prometheus metrics
+        if (droppedCount > 0) {
+            metricsService.recordPrometheusMetricsDropped(deviceId, droppedCount)
+        }
+
         return validMetrics to droppedCount
     }
 
     private fun validateOtelMetrics(
         otelMetrics: List<OtelMetric>?,
-        errors: MutableList<ValidationError>
+        errors: MutableList<ValidationError>,
+        deviceId: String
     ): Pair<List<OtelMetric>?, Boolean> {
         if (otelMetrics == null) return null to false
 
@@ -119,12 +134,16 @@ class ValidationService(private val config: TelemetryConfig) {
         logger.warn("OTEL batch size exceeded: {} > {}, truncated to {} metrics", 
                    currentSize, maxSize, truncatedMetrics.size)
 
+        // Record metrics for OTEL truncation
+        metricsService.recordOtelTruncation(deviceId, otelMetrics.size, truncatedMetrics.size)
+
         return truncatedMetrics to true
     }
 
     private fun validateEvents(
         events: List<Event>?,
-        errors: MutableList<ValidationError>
+        errors: MutableList<ValidationError>,
+        deviceId: String
     ): Pair<List<Event>?, Boolean> {
         if (events == null) return null to false
 
@@ -145,6 +164,9 @@ class ValidationService(private val config: TelemetryConfig) {
         
         logger.warn("Events array size exceeded: {} > {}, truncated to {} events", 
                    events.size, maxSize, maxSize)
+
+        // Record metrics for events truncation
+        metricsService.recordEventsTruncation(deviceId, events.size, maxSize)
 
         return truncatedEvents to true
     }

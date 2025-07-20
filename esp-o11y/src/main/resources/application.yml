@@ -9,6 +9,15 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  metrics:
+    web:
+      server:
+        request:
+          autotime:
+            enabled: true
+    enable:
+      http: true
+      jvm: true
 
 # Telemetry service configuration
 telemetry:

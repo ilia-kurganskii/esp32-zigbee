@@ -37,6 +37,9 @@ class TelemetryControllerTest {
     
     @MockBean 
     private lateinit var telemetryConfig: com.telemetry.config.TelemetryConfig
+    
+    @MockBean
+    private lateinit var metricsService: com.telemetry.service.MetricsService
 
     @Test
     fun `POST telemetry with valid request returns success response`() {

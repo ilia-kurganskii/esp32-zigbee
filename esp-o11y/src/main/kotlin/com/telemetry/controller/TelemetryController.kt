@@ -2,6 +2,7 @@ package com.telemetry.controller
 
 import com.telemetry.model.*
 import com.telemetry.service.ValidationService
+import io.micrometer.core.annotation.Timed
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -14,19 +15,21 @@ import java.time.Instant
 @RestController
 @RequestMapping("/api/v1")
 class TelemetryController(
-    private val validationService: ValidationService
+    private val validationService: ValidationService,
+    private val metricsService: com.telemetry.service.MetricsService
 ) {
 
     private val logger = LoggerFactory.getLogger(TelemetryController::class.java)
 
     @PostMapping("/telemetry", consumes = ["application/json"], produces = ["application/json"])
+    @Timed(value = "telemetry_requests", description = "Time taken to process telemetry requests")
     fun receiveTelemetryData(
         @Valid @RequestBody request: TelemetryBatchRequest
     ): ResponseEntity<Any> {
         
         logger.info("Received telemetry data from device: {}", request.deviceId)
         
-        try {
+        return try {
             // Validate the request using ValidationService
             val validationResult = validationService.validate(request)
             
@@ -39,7 +42,7 @@ class TelemetryController(
             logger.info("Successfully processed telemetry data from device: {} with status: {}", 
                        request.deviceId, response.status)
             
-            return ResponseEntity.ok(response)
+            ResponseEntity.ok(response)
             
         } catch (e: Exception) {
             logger.error("Unexpected error processing telemetry data from device: {}", request.deviceId, e)

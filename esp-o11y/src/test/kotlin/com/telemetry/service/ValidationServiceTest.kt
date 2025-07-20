@@ -3,6 +3,7 @@ package com.telemetry.service
 import com.telemetry.config.TelemetryConfig
 import com.telemetry.config.ValidationConfig
 import com.telemetry.model.*
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -12,6 +13,7 @@ class ValidationServiceTest {
 
     private lateinit var validationService: ValidationService
     private lateinit var config: TelemetryConfig
+    private lateinit var metricsService: MetricsService
 
     @BeforeEach
     fun setUp() {
@@ -22,7 +24,8 @@ class ValidationServiceTest {
                 maxEventsArraySize = 5
             }
         }
-        validationService = ValidationService(config)
+        metricsService = MetricsService(SimpleMeterRegistry())
+        validationService = ValidationService(config, metricsService)
     }
 
 
