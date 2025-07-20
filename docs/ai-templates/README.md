@@ -19,3 +19,8 @@ Save it to docs/ai/prompt_plan.md
 
 ## TODO
 Can you make a `docs/ai/todo.md` that I can use as a checklist? Be thorough.
+
+
+## Execute
+
+Using docs/ai/prompt_plan.md and docs/ai/todo.md and TDD start execuring the plan. Mark each step in todo.md and run tests
