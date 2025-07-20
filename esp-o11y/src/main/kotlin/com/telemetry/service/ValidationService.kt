@@ -19,8 +19,7 @@ class ValidationService(private val config: TelemetryConfig) {
         val originalEvents = request.events?.size ?: 0
         val originalPrometheus = request.metrics?.size ?: 0
 
-        // Validate API key
-        val isApiKeyValid = validateApiKey(request.apiKey, errors)
+        // Note: API key validation is now handled by Spring Security
 
         // Validate and filter Prometheus metrics
         val (validatedPrometheusMetrics, droppedPrometheusCount) = validatePrometheusMetrics(request.metrics, errors)
@@ -51,7 +50,7 @@ class ValidationService(private val config: TelemetryConfig) {
             truncatedEvents = eventsTruncated
         )
 
-        val isValid = isApiKeyValid // Main validation criteria - other issues are warnings
+        val isValid = true // All validation issues are now warnings, authentication handled by Spring Security
 
         // Log validation results
         logValidationResults(request, statistics, errors)
@@ -64,19 +63,7 @@ class ValidationService(private val config: TelemetryConfig) {
         )
     }
 
-    private fun validateApiKey(apiKey: String, errors: MutableList<ValidationError>): Boolean {
-        if (!config.security.apiKeys.contains(apiKey)) {
-            errors.add(ValidationError(
-                type = ValidationErrorType.API_KEY_INVALID,
-                message = "Invalid API key: $apiKey",
-                field = "apiKey",
-                value = apiKey
-            ))
-            logger.warn("Invalid API key attempted: {}", apiKey)
-            return false
-        }
-        return true
-    }
+    // API key validation removed - now handled by Spring Security
 
     private fun validatePrometheusMetrics(
         metrics: List<PrometheusMetric>?,

@@ -24,7 +24,9 @@ telemetry:
     timeout: "30s"
     retry-enabled: false
   security:
-    api-keys: "default-key-change-in-production"
+    api-keys:
+      - "default-key-change-in-production"
+      - "test-api-key"
 
 logging:
   level:

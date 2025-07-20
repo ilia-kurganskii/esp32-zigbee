@@ -87,59 +87,69 @@ This checklist corresponds to the implementation plan in `prompt_plan.md` and pr
 
 ## Phase 2: Core Services
 
-### Step 4: Validation Service Foundation
-- [ ] Create `ValidationService.kt` in service package
-- [ ] Inject TelemetryConfig for validation rules
-- [ ] Implement validation logic:
-  - [ ] Prometheus metric whitelist validation
-  - [ ] OTEL batch size validation with truncation
-  - [ ] Events array size validation with truncation
-  - [ ] API key validation with configurable key set
-- [ ] Create validation result classes:
-  - [ ] `ValidationResult.kt` with detailed feedback
-  - [ ] `ValidationError.kt` with error information
-  - [ ] Immutable data classes with success/failure states
-- [ ] Add structured logging for validation events:
-  - [ ] Log dropped metrics with names and device IDs
-  - [ ] Log truncation events with before/after sizes
-  - [ ] Use consistent log format for monitoring
-- [ ] Write comprehensive unit tests:
-  - [ ] Valid data passes through unchanged
-  - [ ] Invalid Prometheus metrics are filtered
-  - [ ] Oversized OTEL data is truncated correctly
-  - [ ] Oversized events arrays are truncated correctly
-  - [ ] Multiple validation failures in single request
-  - [ ] Edge cases (empty data, null values)
-- [ ] Create mock configurations for testing scenarios
-- [ ] Test validation performance and thread safety
+### ✅ Step 4: Validation Service Foundation - COMPLETED
+- [x] Create `ValidationService.kt` in service package
+- [x] Inject TelemetryConfig for validation rules
+- [x] Implement validation logic:
+  - [x] Prometheus metric whitelist validation
+  - [x] OTEL batch size validation with truncation
+  - [x] Events array size validation with truncation
+  - [x] API key validation with configurable key set
+- [x] Create validation result classes:
+  - [x] `ValidationResult.kt` with detailed feedback
+  - [x] `ValidationError.kt` with error information
+  - [x] `ValidationStatistics.kt` for monitoring
+  - [x] `ValidationErrorType.kt` enum for error categorization
+  - [x] Immutable data classes with success/failure states
+- [x] Add structured logging for validation events:
+  - [x] Log dropped metrics with names and device IDs
+  - [x] Log truncation events with before/after sizes
+  - [x] Use consistent log format for monitoring
+  - [x] Include processing statistics in logs
+- [x] Write comprehensive unit tests (8 test cases):
+  - [x] Valid data passes through unchanged
+  - [x] Invalid Prometheus metrics are filtered
+  - [x] Oversized OTEL data is truncated correctly
+  - [x] Oversized events arrays are truncated correctly
+  - [x] Multiple validation failures in single request
+  - [x] Edge cases (empty data, null values)
+  - [x] API key validation (valid/invalid scenarios)
+  - [x] Handles request with no optional data
+- [x] Create mock configurations for testing scenarios
+- [x] Test validation performance and thread safety
+- [x] Git commit: feat: implement validation service foundation (96e1106)
 
-### Step 5: HTTP Request Handler Foundation
-- [ ] Create `TelemetryController.kt` REST controller
-- [ ] Use @RestController with proper request mapping
-- [ ] Inject ValidationService for data validation
-- [ ] Handle POST requests to `/api/v1/telemetry`
-- [ ] Accept TelemetryBatchRequest with content type validation
+### ⚠️ Step 5: HTTP Request Handler Foundation - NEEDS REFACTOR
+**Note: Current implementation needs refactoring to use Spring Boot best practices**
+
+#### Issues with Current Implementation:
+- [ ] Custom API key validation should use Spring Security instead
+- [ ] Field validation should use Hibernate Validator annotations instead of custom logic
+- [ ] Authentication should be handled by security filters, not in controller logic
+
+#### Required Refactoring:
+- [ ] Add spring-boot-starter-security dependency
+- [ ] Remove custom API key validation from ValidationService
+- [ ] Implement Spring Security configuration with API key authentication
+- [ ] Add proper Hibernate Validator annotations to data models
+- [ ] Update ValidationService to focus on business logic validation only
+- [ ] Refactor TelemetryController to use proper Spring Security and validation
+
+#### Revised Step 5 Tasks:
+- [x] Create `TelemetryController.kt` REST controller (needs security refactor)
+- [x] Use @RestController with proper request mapping
+- [ ] Configure Spring Security for API key authentication
+- [ ] Handle POST requests to `/api/v1/telemetry` with security
+- [ ] Use @Valid with Hibernate Validator for field validation
 - [ ] Implement request processing:
-  - [ ] Validate API key from request body
-  - [ ] Parse and validate telemetry batch data
-  - [ ] Call ValidationService for data filtering
+  - [ ] Remove API key validation from controller (handle via security)
+  - [ ] Use Hibernate Validator for field validation
+  - [ ] Call ValidationService for business logic validation only
   - [ ] Return structured response with statistics
   - [ ] Handle malformed JSON with proper errors
-- [ ] Add proper error handling:
-  - [ ] @ExceptionHandler for validation failures
-  - [ ] @ExceptionHandler for JSON parsing errors
-  - [ ] @ExceptionHandler for authentication failures
-  - [ ] Return consistent error response format
-- [ ] Create response DTOs:
-  - [ ] `TelemetryResponse.kt` for success responses
-  - [ ] `ErrorResponse.kt` for error responses
-  - [ ] Include validation metrics in responses
-- [ ] Write comprehensive integration tests:
-  - [ ] Valid requests return success responses
-  - [ ] Invalid API keys return 401 errors
-  - [ ] Malformed JSON returns 400 errors
-  - [ ] Validation failures are handled gracefully
-  - [ ] Response format is consistent
+- [x] Add proper error handling (needs security updates)
+- [x] Create response DTOs
+- [ ] Write comprehensive integration tests with security
 - [ ] Add request/response logging for debugging
 
 ### Step 6: Metrics Collection Infrastructure

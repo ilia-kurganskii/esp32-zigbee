@@ -52,7 +52,6 @@ class TelemetryDataModelsTest {
         )
         
         val request = TelemetryBatchRequest(
-            apiKey = "test-key",
             deviceId = "esp32-001",
             timestamp = timestamp,
             otel = otelMetrics,
@@ -63,13 +62,11 @@ class TelemetryDataModelsTest {
         // Test serialization
         val json = objectMapper.writeValueAsString(request)
         assertNotNull(json)
-        assertTrue(json.contains("test-key"))
         assertTrue(json.contains("esp32-001"))
         assertTrue(json.contains("system.cpu.usage"))
         
         // Test deserialization
         val deserializedRequest: TelemetryBatchRequest = objectMapper.readValue(json)
-        assertEquals(request.apiKey, deserializedRequest.apiKey)
         assertEquals(request.deviceId, deserializedRequest.deviceId)
         assertEquals(request.timestamp, deserializedRequest.timestamp)
         assertEquals(request.otel?.size, deserializedRequest.otel?.size)
@@ -184,7 +181,6 @@ class TelemetryDataModelsTest {
         
         // Test with empty arrays
         val requestWithEmpty = TelemetryBatchRequest(
-            apiKey = "test-key",
             deviceId = "esp32-001",
             timestamp = timestamp,
             otel = emptyList(),
@@ -200,7 +196,6 @@ class TelemetryDataModelsTest {
         
         // Test with null arrays
         val requestWithNull = TelemetryBatchRequest(
-            apiKey = "test-key",
             deviceId = "esp32-001",
             timestamp = timestamp,
             otel = null,

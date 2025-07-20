@@ -181,7 +181,7 @@ Implement the core validation service for telemetry data:
    - Prometheus: filter based on configurable whitelist
    - OTEL: check size and truncate if necessary, preserving most recent data
    - Events: check array size and truncate if necessary
-   - API key validation with configurable key set
+   - NOTE: API key validation will be handled by Spring Security in Step 5
 
 4. Add structured logging for validation events:
    - Log dropped metrics with metric names and device IDs
@@ -201,49 +201,54 @@ Implement the core validation service for telemetry data:
 Ensure validation is fast, thread-safe, and provides clear feedback for monitoring and debugging.
 ```
 
-### Step 5: HTTP Request Handler Foundation
+### Step 5: HTTP Request Handler Foundation (REVISED)
 
-**Context**: Create the basic HTTP endpoint structure that will eventually be extended for UDP support.
+**Context**: Create HTTP endpoint with proper Spring Boot Security and Hibernate Validator integration.
 
-**Deliverable**: REST controller with proper request handling and response formatting.
+**Deliverable**: REST controller with Spring Security authentication and proper validation.
 
 ```
-Create the HTTP-based telemetry endpoint as foundation for UDP implementation:
+Create the HTTP-based telemetry endpoint using Spring Boot best practices:
 
-1. Create `TelemetryController.kt` in `src/main/kotlin/com/telemetry/controller/`:
-   - Use @RestController with proper request mapping
-   - Inject ValidationService for data validation
-   - Handle POST requests to `/api/v1/telemetry`
-   - Accept TelemetryBatchRequest with proper content type validation
+1. Add Spring Security dependency and configure API key authentication:
+   - Add spring-boot-starter-security to build.gradle.kts
+   - Create SecurityConfig for API key authentication filter
+   - Implement custom authentication provider for API key validation
+   - Configure security to protect /api/v1/telemetry endpoint
 
-2. Implement request processing:
-   - Validate API key from request body
-   - Parse and validate telemetry batch data
-   - Call ValidationService for data filtering
+2. Enhance data models with Hibernate Validator annotations:
+   - Add @NotBlank, @NotNull, @Size, @Valid to TelemetryBatchRequest
+   - Add proper validation annotations to OtelMetric, Event, PrometheusMetric
+   - Remove API key validation from ValidationService (handle via security)
+   - Update ValidationService to focus on business logic only
+
+3. Create `TelemetryController.kt` with proper Spring integration:
+   - Use @RestController with @Valid for automatic field validation
+   - Remove manual API key validation (handled by security filter)
+   - Handle POST requests to `/api/v1/telemetry` with authentication
+   - Use Hibernate Validator for automatic field validation
+
+4. Implement request processing with proper separation of concerns:
+   - Authentication handled by Spring Security filter
+   - Field validation handled by Hibernate Validator
+   - Business logic validation handled by ValidationService
    - Return structured response with validation statistics
-   - Handle malformed JSON with proper error responses
 
-3. Add proper error handling:
-   - @ExceptionHandler for validation failures
+5. Add proper error handling:
+   - @ExceptionHandler for validation failures (MethodArgumentNotValidException)
    - @ExceptionHandler for JSON parsing errors
-   - @ExceptionHandler for authentication failures
+   - Security exceptions handled by Spring Security
    - Return consistent error response format
 
-4. Create response DTOs:
-   - `TelemetryResponse.kt` - Success response with statistics
-   - `ErrorResponse.kt` - Error response with details
-   - Include validation metrics in responses
+6. Write comprehensive integration tests with security:
+   - Test with valid API keys (authenticated requests)
+   - Test with invalid/missing API keys (401 errors)
+   - Test field validation failures (400 errors)
+   - Test business logic validation warnings
+   - Integration tests with @WithMockUser or custom security
 
-5. Write comprehensive integration tests:
-   - Valid requests return success responses
-   - Invalid API keys return 401 errors
-   - Malformed JSON returns 400 errors
-   - Validation failures are handled gracefully
-   - Response format is consistent
-
-6. Add request/response logging for debugging
-
-This HTTP endpoint will serve as the foundation for UDP implementation and provide a testable interface for the validation logic.
+This provides proper separation of concerns with Spring Security handling authentication,
+Hibernate Validator handling field validation, and ValidationService handling business logic.
 ```
 
 ### Step 6: Metrics Collection Infrastructure

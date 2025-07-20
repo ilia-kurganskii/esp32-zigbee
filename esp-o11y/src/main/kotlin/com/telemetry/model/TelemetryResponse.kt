@@ -16,5 +16,8 @@ data class TelemetryResponse(
     val truncatedEvents: Boolean,
     
     @JsonProperty("droppedPrometheusMetrics")
-    val droppedPrometheusMetrics: Int
+    val droppedPrometheusMetrics: Int,
+    
+    @JsonProperty("warnings")
+    val warnings: List<String>? = null
 )

@@ -2,7 +2,6 @@ package com.telemetry.service
 
 import com.telemetry.config.TelemetryConfig
 import com.telemetry.config.ValidationConfig
-import com.telemetry.config.SecurityConfig
 import com.telemetry.model.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
@@ -22,38 +21,15 @@ class ValidationServiceTest {
                 maxOtelBatchSize = 1000
                 maxEventsArraySize = 5
             }
-            security = SecurityConfig().apply {
-                apiKeys = setOf("valid-key-1", "valid-key-2")
-            }
         }
         validationService = ValidationService(config)
     }
 
-    @Test
-    fun `validates request with valid API key successfully`() {
-        val request = createValidRequest("valid-key-1")
-        
-        val result = validationService.validate(request)
-        
-        assertTrue(result.isValid)
-        assertTrue(result.errors.isEmpty())
-        assertEquals("valid-key-1", result.validatedRequest.apiKey)
-    }
 
-    @Test
-    fun `rejects request with invalid API key`() {
-        val request = createValidRequest("invalid-key")
-        
-        val result = validationService.validate(request)
-        
-        assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.type == ValidationErrorType.API_KEY_INVALID })
-        assertTrue(result.errors.any { it.message.contains("invalid-key") })
-    }
 
     @Test
     fun `filters non-whitelisted Prometheus metrics`() {
-        val request = createValidRequest("valid-key-1").copy(
+        val request = createValidRequest().copy(
             metrics = listOf(
                 PrometheusMetric("cpu_usage", 50.0, emptyMap()), // whitelisted
                 PrometheusMetric("custom_metric", 100.0, emptyMap()), // not whitelisted
@@ -88,7 +64,7 @@ class ValidationServiceTest {
                 Instant.now()
             )
         }
-        val request = createValidRequest("valid-key-1").copy(otel = largeOtelMetrics)
+        val request = createValidRequest().copy(otel = largeOtelMetrics)
         
         val result = validationService.validate(request)
         
@@ -110,7 +86,7 @@ class ValidationServiceTest {
         val largeEventsList = (1..10).map {
             Event("event_$it", "Message $it", "INFO", Instant.now())
         }
-        val request = createValidRequest("valid-key-1").copy(events = largeEventsList)
+        val request = createValidRequest().copy(events = largeEventsList)
         
         val result = validationService.validate(request)
         
@@ -124,7 +100,7 @@ class ValidationServiceTest {
 
     @Test
     fun `handles request with no optional data`() {
-        val request = createValidRequest("valid-key-1").copy(
+        val request = createValidRequest().copy(
             otel = null,
             events = null,
             metrics = null
@@ -143,7 +119,7 @@ class ValidationServiceTest {
 
     @Test
     fun `handles empty arrays correctly`() {
-        val request = createValidRequest("valid-key-1").copy(
+        val request = createValidRequest().copy(
             otel = emptyList(),
             events = emptyList(),
             metrics = emptyList()
@@ -163,7 +139,6 @@ class ValidationServiceTest {
     @Test
     fun `collects multiple validation errors correctly`() {
         val request = TelemetryBatchRequest(
-            apiKey = "invalid-key",
             deviceId = "test-device",
             timestamp = Instant.now(),
             otel = (1..50).map { OtelMetric("very_long_metric_name_$it", it.toDouble(), mapOf("key_$it" to "value_$it"), Instant.now()) },
@@ -179,18 +154,16 @@ class ValidationServiceTest {
         println("Validation errors: ${result.errors.map { "${it.type}: ${it.message}" }}")
         println("Error count: ${result.errors.size}")
         
-        assertFalse(result.isValid)
-        assertTrue(result.errors.size >= 2) // At minimum API key and Prometheus filtering
+        assertTrue(result.isValid) // Should be valid now that API key validation is removed
+        assertTrue(result.errors.size >= 1) // At minimum Prometheus filtering
         
         val errorTypes = result.errors.map { it.type }
-        assertTrue(errorTypes.contains(ValidationErrorType.API_KEY_INVALID))
         assertTrue(errorTypes.contains(ValidationErrorType.PROMETHEUS_METRIC_NOT_WHITELISTED))
         // OTEL and Events truncation may or may not occur depending on the size calculation
     }
 
-    private fun createValidRequest(apiKey: String): TelemetryBatchRequest {
+    private fun createValidRequest(): TelemetryBatchRequest {
         return TelemetryBatchRequest(
-            apiKey = apiKey,
             deviceId = "test-device-001",
             timestamp = Instant.now(),
             otel = listOf(
