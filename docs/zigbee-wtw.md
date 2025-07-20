@@ -20,11 +20,11 @@ This project implements a 3-channel Zigbee GPIO controller for the ESP32-C6, des
 
 The controller operates in one of three states, with the following relay configurations:
 
-| State   | `RELAY1` | `RELAY2` |
-| :------ | :------- | :------- |
-| Night   | OFF      | OFF      |
-| Day     | ON       | OFF      |
-| Shower  | ON       | ON       |
+| State  | `RELAY1` | `RELAY2` |
+| :----- | :------- | :------- |
+| Night  | OFF      | OFF      |
+| Day    | ON       | OFF      |
+| Shower | ON       | ON       |
 
 The default state is **Day**.
 
@@ -63,3 +63,11 @@ Once the device is flashed and has joined your Zigbee network, it will appear in
 *   **Set State to Shower:** `2`
 
 You can use the Zigbee2MQTT frontend or an MQTT client to send these commands.
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request if you have any improvements or bug fixes.
+
+## License
+
+This project is licensed under the MIT License. See the `LICENSE` file for more details.
