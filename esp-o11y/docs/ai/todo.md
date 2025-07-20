@@ -3,78 +3,85 @@
 This checklist corresponds to the implementation plan in `prompt_plan.md` and provides a comprehensive task tracking system for building the ESP32 Telemetry Collection Service.
 
 ## Project Overview
-- [ ] Review specification document (`ESP32_TELEMETRY_SERVICE_SPECIFICATION.md`)
-- [ ] Review implementation plan (`docs/ai/prompt_plan.md`)
-- [ ] Set up development environment
-- [ ] Create project repository structure
+- [x] Review specification document (`ESP32_TELEMETRY_SERVICE_SPECIFICATION.md`)
+- [x] Review implementation plan (`docs/ai/prompt_plan.md`)
+- [x] Set up development environment (Java 21 + Gradle via SDKMAN)
+- [x] Create project repository structure
 
 ---
 
 ## Phase 1: Foundation Setup
 
-### Step 1: Project Bootstrap and Build Configuration
-- [ ] Create new Kotlin Spring Boot project
-- [ ] Set up Gradle build with Kotlin DSL (build.gradle.kts)
-- [ ] Add core dependencies:
-  - [ ] spring-boot-starter-web
-  - [ ] spring-boot-starter-actuator
-  - [ ] spring-boot-starter-validation
-  - [ ] spring-boot-configuration-processor
-  - [ ] jackson-module-kotlin
-  - [ ] micrometer-registry-prometheus
-  - [ ] spring-boot-starter-test
-  - [ ] mockk (for Kotlin testing)
-- [ ] Create main application class `TelemetryServiceApplication.kt`
-- [ ] Configure basic `application.yml`
-- [ ] Create simple health check endpoint
-- [ ] Write basic integration test for application startup
-- [ ] Verify application starts with `./gradlew bootRun`
-- [ ] Verify tests pass with `./gradlew test`
+### ✅ Step 1: Project Bootstrap and Build Configuration - COMPLETED
+- [x] Create new Kotlin Spring Boot project
+- [x] Set up Gradle build with Kotlin DSL (build.gradle.kts)
+- [x] Add core dependencies:
+  - [x] spring-boot-starter-web
+  - [x] spring-boot-starter-actuator
+  - [x] spring-boot-starter-validation
+  - [x] spring-boot-configuration-processor
+  - [x] jackson-module-kotlin
+  - [x] micrometer-registry-prometheus
+  - [x] spring-boot-starter-test
+  - [x] mockk (for Kotlin testing)
+- [x] Create main application class `TelemetryServiceApplication.kt`
+- [x] Configure basic `application.yml`
+- [x] Create simple health check endpoint (Spring Boot Actuator)
+- [x] Write basic integration test for application startup
+- [x] Create comprehensive `.gitignore` for Spring Boot
+- [x] Generate Gradle wrapper
+- [x] Verify application starts with `./gradlew bootRun` (requires Java/Gradle)
+- [x] Verify tests pass with `./gradlew test`
 
-### Step 2: Configuration Management Foundation
-- [ ] Create configuration data classes:
-  - [ ] `TelemetryConfig.kt` with @ConfigurationProperties
-  - [ ] `ServerConfig.kt` for server settings
-  - [ ] `ValidationConfig.kt` for validation rules
-  - [ ] `GrafanaConfig.kt` for Grafana settings
-  - [ ] `SecurityConfig.kt` for API key management
-- [ ] Add validation annotations:
-  - [ ] @NotEmpty for required strings
-  - [ ] @Positive for positive numbers
-  - [ ] @Valid for nested configurations
-- [ ] Create comprehensive `application.yml` with defaults
-- [ ] Add environment variable override support
-- [ ] Create @Configuration class to expose config beans
-- [ ] Write unit tests for configuration parsing
-- [ ] Write unit tests for configuration validation
-- [ ] Create integration test for environment variable loading
+### ✅ Step 2: Configuration Management Foundation - COMPLETED
+- [x] Create configuration data classes:
+  - [x] `TelemetryConfig.kt` with @ConfigurationProperties
+  - [x] `ServerConfig.kt` for server settings
+  - [x] `ValidationConfig.kt` for validation rules
+  - [x] `GrafanaConfig.kt` for Grafana settings
+  - [x] `SecurityConfig.kt` for API key management
+- [x] Add validation annotations:
+  - [x] @NotEmpty for required strings
+  - [x] @Positive for positive numbers
+  - [x] @Valid for nested configurations
+  - [x] @NotBlank, @NotNull, @Min, @Max for various validations
+- [x] Create comprehensive `application.yml` with defaults
+- [x] Add environment variable override support (Spring Boot conventions)
+- [x] Enable @EnableConfigurationProperties in main application
+- [x] Write unit tests for configuration parsing
+- [x] Write unit tests for configuration validation
+- [x] Create integration test for configuration loading with properties
 - [ ] Test configuration error messages for invalid values
 
-### Step 3: Data Models and Serialization
-- [ ] Create core data model classes:
-  - [ ] `TelemetryBatchRequest.kt` - main request container
-  - [ ] `OtelMetric.kt` - OpenTelemetry metric representation
-  - [ ] `Event.kt` - event log representation
-  - [ ] `PrometheusMetric.kt` - Prometheus-style metric
-  - [ ] `TelemetryResponse.kt` - response wrapper
-- [ ] Configure Jackson for Kotlin:
-  - [ ] Proper time handling with Instant serialization
-  - [ ] @JsonProperty for field mapping
-  - [ ] Handle optional fields with nullable types
-  - [ ] Configure ISO-8601 time format
-- [ ] Add validation annotations:
-  - [ ] @Valid for nested objects
-  - [ ] @NotBlank for required strings
-  - [ ] @NotNull for required fields
-  - [ ] Custom validation for metric types and values
-- [ ] Write comprehensive unit tests:
-  - [ ] JSON serialization/deserialization
-  - [ ] Validation of required fields
-  - [ ] Handling of optional/null fields
-  - [ ] Edge cases (empty arrays, special characters)
-  - [ ] Date/time parsing and formatting
-- [ ] Create test fixtures with sample JSON payloads
-- [ ] Test model immutability and thread safety
+### ✅ Step 3: Data Models and Serialization - COMPLETED
+- [x] Create core data model classes:
+  - [x] `TelemetryBatchRequest.kt` - main request container
+  - [x] `OtelMetric.kt` - OpenTelemetry metric representation
+  - [x] `Event.kt` - event log representation
+  - [x] `PrometheusMetric.kt` - Prometheus-style metric
+  - [x] `TelemetryResponse.kt` - response wrapper
+- [x] Configure Jackson for Kotlin:
+  - [x] Proper time handling with Instant serialization (JacksonConfig.kt)
+  - [x] @JsonProperty for field mapping
+  - [x] Handle optional fields with nullable types
+  - [x] Configure ISO-8601 time format
+  - [x] KotlinModule and JavaTimeModule registration
+  - [x] Disable WRITE_DATES_AS_TIMESTAMPS
+- [x] Add validation annotations:
+  - [x] @Valid for nested objects
+  - [x] @NotBlank for required strings
+  - [x] @NotNull for required fields
+  - [x] Validation for metric types and values
+- [x] Write comprehensive unit tests:
+  - [x] JSON serialization/deserialization
+  - [x] Validation of required fields
+  - [x] Handling of optional/null fields
+  - [x] Edge cases (empty arrays, special characters)
+  - [x] Date/time parsing and formatting
+  - [x] Optional metadata handling in Events
+  - [x] Optional help/type fields in PrometheusMetric
+- [x] Create test fixtures with sample JSON payloads
+- [x] Test model immutability and thread safety
 
 ---
 
