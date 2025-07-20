@@ -249,6 +249,9 @@ Create the HTTP-based telemetry endpoint using Spring Boot best practices:
 
 This provides proper separation of concerns with Spring Security handling authentication,
 Hibernate Validator handling field validation, and ValidationService handling business logic.
+
+**IMPORTANT**: After completing each step, update the todo.md checklist to mark tasks as completed
+and add any new git commit references for progress tracking.
 ```
 
 ### Step 6: Metrics Collection Infrastructure
