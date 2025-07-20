@@ -15,11 +15,17 @@
 #include "ha/esp_zigbee_ha_standard.h"
 #include "driver/gpio.h"
 #include "main.h"
-
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
 
 // GPIO output pin definitions for 2-relay module
 #define RELAY1_GPIO   GPIO_NUM_2  // IN1 - Used for Day and Shower modes
 #define RELAY2_GPIO   GPIO_NUM_3  // IN2 - Used for Shower mode only
+
+// OTA update settings
+#define OTA_URL "http://192.168.1.100:8070/zigbee_wtw.bin"
+#define OTA_CLUSTER_ID 0xFC01
+#define OTA_ATTR_ID 0x0001
 
 // Output states
 typedef enum {
@@ -33,6 +39,7 @@ static const char *get_cluster_name(uint16_t cluster_id) {
         case ESP_ZB_ZCL_CLUSTER_ID_BASIC: return "Basic";
         case ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY: return "Identify";
         case ESP_ZB_ZCL_CLUSTER_ID_MULTI_VALUE: return "Multistate Value";
+        case OTA_CLUSTER_ID: return "OTA";
         default: return "Unknown";
     }
 }
@@ -55,6 +62,31 @@ static uint16_t current_output_state = 1; // Default to day mode
 // Basic device info
 static uint8_t manufacturer[] = {6, 'E', 'S', 'P', '-', '3', '2'};
 static uint8_t model[] = {3, 'W', 'T', 'W'};
+
+// OTA update task
+void ota_update_task(void *pvParameter)
+{
+    ESP_LOGI(TAG, "Starting OTA update...");
+
+    esp_http_client_config_t config = {
+        .url = OTA_URL,
+        .cert_pem = NULL,
+    };
+
+    esp_https_ota_config_t ota_config = {
+        .http_config = &config,
+    };
+
+    esp_err_t ret = esp_https_ota(&ota_config);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "OTA update successful, rebooting...");
+        esp_restart();
+    } else {
+        ESP_LOGE(TAG, "OTA update failed: %s", esp_err_to_name(ret));
+    }
+
+    vTaskDelete(NULL);
+}
 
 // Zigbee signal handler
 void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
@@ -186,6 +218,10 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
         } else {
             ESP_LOGW(TAG, "Unhandled multistate attribute ID: 0x%04x", attr_id);
         }
+    } else if (cluster == OTA_CLUSTER_ID) {
+        if (attr_id == OTA_ATTR_ID) {
+            xTaskCreate(&ota_update_task, "ota_update_task", 8192, NULL, 5, NULL);
+        }
     } else {
         ESP_LOGW(TAG, "Unhandled cluster ID: 0x%04x", cluster);
     }
@@ -231,11 +267,17 @@ static void create_zigbee_device(void)
     };
     esp_zb_attribute_list_t *multistate_cluster = esp_zb_multistate_value_cluster_create(&multistate_cfg);
 
+    // OTA cluster
+    esp_zb_attribute_list_t *ota_cluster = esp_zb_zcl_attr_list_create(OTA_CLUSTER_ID);
+        uint8_t ota_attr_value = 0;
+    esp_zb_cluster_add_attr(ota_cluster, OTA_CLUSTER_ID, OTA_ATTR_ID, ESP_ZB_ZCL_ATTR_TYPE_U8, ESP_ZB_ZCL_ATTR_ACCESS_READ_WRITE, &ota_attr_value);
+
     // Create cluster list
     esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
     esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_identify_cluster(cluster_list, identify_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_multistate_value_cluster(cluster_list, multistate_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_custom_cluster(cluster_list, ota_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     
     // Create endpoint
     esp_zb_endpoint_config_t endpoint_config = {
