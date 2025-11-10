@@ -1,0 +1,30 @@
+# Sourcecode by vdbrink.github.io
+esphome:
+  name: espscd40
+  comment: Room CO2 sensor
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework:
+    type: esp-idf
+    version: recommended
+
+# Enable logging to the console
+logger:
+
+
+# Pins on an esp8266
+i2c:
+  sda: 6 # pin 21 for an ESP32
+  scl: 7 # pin 22 for an ESP32
+
+# Sensors definitions
+sensor:
+  - platform: scd4x
+    co2:
+      name: "SCD40 CO2"
+    temperature:
+      name: "CO2 temperature"
+    humidity:
+      name: "CO2 humidity"
