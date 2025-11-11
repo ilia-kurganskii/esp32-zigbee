@@ -18,17 +18,19 @@
 static const char *TAG = "SCD40_CO2";
 
 #define I2C_MASTER_NUM              I2C_NUM_0  
-#define I2C_MASTER_SCL_IO           CONFIG_I2C_MASTER_SCL       /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           CONFIG_I2C_MASTER_SDA       /*!< GPIO number used for I2C master data  */
-#define I2C_MASTER_FREQ_HZ          CONFIG_I2C_MASTER_FREQUENCY /*!< I2C master clock frequency */
-#define I2C_MASTER_TIMEOUT_MS       1000
+#define I2C_MASTER_SCL_IO           6       /*!< GPIO number used for I2C master clock */
+#define I2C_MASTER_SDA_IO           7       /*!< GPIO number used for I2C master data  */
+#define I2C_MASTER_FREQ_HZ          40000 /*!< I2C master clock frequency */
+#define I2C_MASTER_TIMEOUT_MS       10000
 
 #define SCD40_SENSOR_ADDR           0x62                        /*!< I2C address of SCD40 sensor */
 
 /* SCD40 Commands */
 #define SCD40_CMD_START_PERIODIC_MEASUREMENT    0x21B1
+#define SCD40_CMD_STOP_PERIODIC_MEASUREMENT     0x3f86
 #define SCD40_CMD_READ_MEASUREMENT              0xEC05
 #define SCD40_CMD_GET_SERIAL_NUMBER             0x3682
+#define SDC40_CMD_REINIT                        0x3646
 
 /**
  * @brief Calculate CRC8 checksum for SCD40 data validation
@@ -134,6 +136,15 @@ static esp_err_t scd40_start_periodic_measurement(i2c_master_dev_handle_t dev_ha
     return scd40_send_command(dev_handle, SCD40_CMD_START_PERIODIC_MEASUREMENT);
 }
 
+static esp_err_t scd40_reinit(i2c_master_dev_handle_t dev_handle){
+    return scd40_send_command(dev_handle, SDC40_CMD_REINIT);
+}
+
+static esp_err_t scd40_stop_periodic_measurement(i2c_master_dev_handle_t dev_handle)
+{
+    return scd40_send_command(dev_handle, SCD40_CMD_STOP_PERIODIC_MEASUREMENT);
+}
+
 /**
  * @brief Read CO2, temperature, and humidity from SCD40
  */
@@ -172,13 +183,13 @@ static esp_err_t scd40_read_measurement(i2c_master_dev_handle_t dev_handle,
 static esp_err_t i2c_master_init(i2c_master_bus_handle_t *bus_handle, i2c_master_dev_handle_t *dev_handle)
 {
     i2c_master_bus_config_t bus_config = {
-        .i2c_port = -1,
-        .sda_io_num = 6,
-        .scl_io_num = 7,
+        .i2c_port = I2C_MASTER_NUM,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
+        .flags.enable_internal_pullup = false,
+        };
 
     esp_err_t ret = i2c_new_master_bus(&bus_config, bus_handle);
     if (ret != ESP_OK) {
@@ -200,6 +211,8 @@ static esp_err_t i2c_master_init(i2c_master_bus_handle_t *bus_handle, i2c_master
 
     return ESP_OK;
 }
+
+
 
 void app_main(void)
 {
@@ -225,6 +238,16 @@ void app_main(void)
                  (uint16_t)(serial_number & 0xFFFF));
     } else {
         ESP_LOGE(TAG, "Failed to read serial");
+        ret = scd40_stop_periodic_measurement(dev_handle);
+        if (ret != ESP_OK){
+            ESP_LOGE(TAG, "Stop failed");
+        } else {
+            ESP_LOGI(TAG, "scd40_stop_periodic_measurement success");
+            ret = scd40_reinit(dev_handle);
+             if (ret != ESP_OK){
+                ESP_LOGE(TAG, "Reinit failed");
+             }
+        }
     }
 
     // Start periodic measurement
