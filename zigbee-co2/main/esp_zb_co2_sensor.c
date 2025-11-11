@@ -231,24 +231,20 @@ void app_main(void)
     // Get and display serial number
     uint64_t serial_number = 0;
     ret = scd40_get_serial_number(dev_handle, &serial_number);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Serial: %04X-%04X-%04X",
-                 (uint16_t)(serial_number >> 32),
-                 (uint16_t)(serial_number >> 16),
-                 (uint16_t)(serial_number & 0xFFFF));
-    } else {
+    while (ret != ESP_OK){
         ESP_LOGE(TAG, "Failed to read serial");
         ret = scd40_stop_periodic_measurement(dev_handle);
         if (ret != ESP_OK){
             ESP_LOGE(TAG, "Stop failed");
-        } else {
-            ESP_LOGI(TAG, "scd40_stop_periodic_measurement success");
-            ret = scd40_reinit(dev_handle);
-             if (ret != ESP_OK){
-                ESP_LOGE(TAG, "Reinit failed");
-             }
         }
+        ret = scd40_get_serial_number(dev_handle, &serial_number);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
+
+    ESP_LOGI(TAG, "Serial: %04X-%04X-%04X",
+               (uint16_t)(serial_number >> 32),
+               (uint16_t)(serial_number >> 16),
+               (uint16_t)(serial_number & 0xFFFF));
 
     // Start periodic measurement
     ret = scd40_start_periodic_measurement(dev_handle);
