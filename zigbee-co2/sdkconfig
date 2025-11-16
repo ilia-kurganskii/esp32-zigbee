@@ -3718,6 +3718,25 @@ CONFIG_SCD40_DEFAULT_ALTITUDE=0
 # default:
 CONFIG_SCD40_ENABLE_ASC_BY_DEFAULT=y
 # end of SCD40 CO2 Sensor Configuration
+
+#
+# Zigbee
+#
+CONFIG_ZB_ENABLED=y
+# CONFIG_ZB_ZCZR is not set
+CONFIG_ZB_ZED=y
+# CONFIG_ZB_ZGPD is not set
+CONFIG_ZB_RADIO_NATIVE=y
+# CONFIG_ZB_RADIO_SPINEL_UART is not set
+
+#
+# Zigbee Example
+#
+# end of Zigbee Example
+
+# default:
+# CONFIG_ZB_DEBUG_MODE is not set
+# end of Zigbee
 # end of Component config
 
 # default:
