@@ -1,0 +1,32 @@
+menu "SCD40 CO2 Sensor Configuration"
+
+    config SCD40_I2C_TIMEOUT_MS
+        int "I2C communication timeout (ms)"
+        default 1000
+        range 100 5000
+        help
+            Timeout for I2C communication operations in milliseconds.
+
+    config SCD40_ENABLE_DEBUG_LOGS
+        bool "Enable debug logging"
+        default n
+        help
+            Enable detailed debug logging for SCD40 driver operations.
+
+    config SCD40_DEFAULT_ALTITUDE
+        int "Default sensor altitude (meters)"
+        default 0
+        range 0 3000
+        help
+            Default altitude in meters above sea level for CO2 compensation.
+            This can be changed at runtime using scd40_set_sensor_altitude().
+
+    config SCD40_ENABLE_ASC_BY_DEFAULT
+        bool "Enable automatic self-calibration by default"
+        default y
+        help
+            Enable automatic self-calibration (ASC) feature by default.
+            ASC uses the lowest CO2 concentration measured during a week
+            as a reference for 400 ppm. Only enable in well-ventilated areas.
+
+endmenu

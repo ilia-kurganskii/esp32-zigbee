@@ -13,7 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "scd40_driver.h"
+#include "scd40.h"
 
 static const char *TAG = "ZIGBEE_CO2_SENSOR";
 

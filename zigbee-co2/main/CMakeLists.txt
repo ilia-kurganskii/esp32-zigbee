@@ -1,5 +1,5 @@
 idf_component_register(
     SRC_DIRS  "."
     INCLUDE_DIRS "."
-    PRIV_REQUIRES esp_driver_i2c
+    PRIV_REQUIRES scd40
 )
