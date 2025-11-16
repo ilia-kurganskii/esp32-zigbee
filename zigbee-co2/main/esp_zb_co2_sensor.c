@@ -115,6 +115,23 @@ static esp_err_t sensor_init(void)
     return ESP_OK;
 }
 
+static esp_err_t start_periodic_measurement(void)
+{
+    esp_err_t ret;
+
+    // Start periodic measurement with retries
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        ret = scd40_start_periodic_measurement(&g_sensor);
+        if (ret == ESP_OK) {
+            break;
+        }
+
+        ESP_LOGW(TAG, "Start periodic measurement attempt %d/%d failed: %s",
+                 attempt, MAX_RETRIES, esp_err_to_name(ret));
+    }
+
+    return ret;
+}
 /**
  * @brief Get CO2, temperature, and humidity data from sensor
  *
@@ -129,26 +146,24 @@ static esp_err_t sensor_get_data(scd40_measurement_t *data)
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Trigger single-shot measurement with retries
+    bool data_ready = false;
+
+    // Wait for data ready status with retries
     for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        ret = scd40_measure_single_shot(&g_sensor);
-        if (ret == ESP_OK) {
+        ret = scd40_get_data_ready_status(&g_sensor, &data_ready);
+        if (ret == ESP_OK && data_ready) {
             break;
         }
-
-        ESP_LOGW(TAG, "Trigger measurement attempt %d/%d failed: %s",
-                 attempt, MAX_RETRIES, esp_err_to_name(ret));
-
-        if (attempt < MAX_RETRIES) {
-            vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
-        } else {
-            ESP_LOGE(TAG, "Failed to trigger measurement after %d attempts", MAX_RETRIES);
-            return ret;
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Wait for data ready status attempt %d/%d failed: %s",
+                     attempt, MAX_RETRIES, esp_err_to_name(ret));
         }
-    }
+        if (!data_ready) {
+            ESP_LOGW(TAG, "Data not ready %d/%d", attempt, MAX_RETRIES);
+        }
 
-    // Wait for measurement to complete (5 seconds as per datasheet)
-    vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS*3));
+    }
 
     // Read measurement with retries
     for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -385,6 +400,15 @@ static void esp_zb_task(void *pvParameters)
 static void sensor_task(void *args)
 {
     scd40_measurement_t measurement;
+    esp_err_t ret;
+
+    ret = start_periodic_measurement();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start periodic measurement");
+        return;
+    } else {
+        ESP_LOGI(TAG, "Periodic measurement started");
+    }
 
     while (true) {
         // Get sensor data
@@ -397,6 +421,7 @@ static void sensor_task(void *args)
         }
 
         // Wait 5 seconds before next measurement
+        ESP_LOGI(TAG, "Waiting for next measurement %i seconds", 5);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
