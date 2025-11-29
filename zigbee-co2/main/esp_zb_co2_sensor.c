@@ -20,6 +20,10 @@
 #include "esp_zigbee_core.h"
 #include "ha/esp_zigbee_ha_standard.h"
 #include "scd40.h"
+#include "esp_sleep.h"
+#include "esp_timer.h"
+#include "driver/rtc_io.h"
+#include <sys/time.h>
 
 static const char *TAG = "ZIGBEE_CO2_SENSOR";
 
@@ -52,14 +56,72 @@ static const char *TAG = "ZIGBEE_CO2_SENSOR";
 /* Global sensor handle */
 static scd40_handle_t g_sensor;
 
+/* Deep sleep variables */
+static RTC_DATA_ATTR struct timeval s_sleep_enter_time;
+static esp_timer_handle_t s_oneshot_timer;
+
 static bool is_data_ready = false;
 static bool is_zigbee_ready = false;
 
+/********************* Deep Sleep Functions *********************/
+
+/**
+ * @brief One-shot timer callback to enter deep sleep
+ */
+static void s_oneshot_timer_callback(void *arg)
+{
+    ESP_LOGI(TAG, "Enter deep sleep");
+    gettimeofday(&s_sleep_enter_time, NULL);
+    esp_deep_sleep_start();
+}
+
+/**
+ * @brief Initialize deep sleep configuration
+ */
+static void zb_deep_sleep_init(void)
+{
+    // Create one-shot timer for deep sleep entry
+    const esp_timer_create_args_t s_oneshot_timer_args = {
+        .callback = &s_oneshot_timer_callback,
+        .name = "deep-sleep-timer"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&s_oneshot_timer_args, &s_oneshot_timer));
+
+    // Print wake-up reason
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    int sleep_time_ms = (now.tv_sec - s_sleep_enter_time.tv_sec) * 1000 + 
+                        (now.tv_usec - s_sleep_enter_time.tv_usec) / 1000;
+    
+    esp_sleep_wakeup_cause_t wake_up_cause = esp_sleep_get_wakeup_cause();
+    switch (wake_up_cause) {
+    case ESP_SLEEP_WAKEUP_TIMER:
+        ESP_LOGI(TAG, "Wake up from timer. Time spent in deep sleep and boot: %dms", sleep_time_ms);
+        break;
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+    default:
+        ESP_LOGI(TAG, "Not a deep sleep reset");
+        break;
+    }
+
+    // Configure RTC timer wake-up for 10 seconds
+    const int wakeup_time_sec = 10;
+    ESP_LOGI(TAG, "Enabling timer wakeup, %ds", wakeup_time_sec);
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(wakeup_time_sec * 1000000));
+}
+
+/**
+ * @brief Check if conditions are met for deep sleep and trigger if ready
+ */
 static bool checkConditionForDeepSleep()
 {
     bool is_ready_for_restart =  is_data_ready && is_zigbee_ready;
     if (is_ready_for_restart) {
         ESP_LOGI(TAG, "Conditions met for deep sleep");
+        // Start one-shot timer to enter deep sleep after 10 seconds
+        const int before_deep_sleep_time_sec = 10;
+        ESP_LOGI(TAG, "Starting one-shot timer for %ds before entering deep sleep", before_deep_sleep_time_sec);
+        ESP_ERROR_CHECK(esp_timer_start_once(s_oneshot_timer, before_deep_sleep_time_sec * 1000000));
     } else {
         ESP_LOGW(TAG, "Conditions not met for deep sleep");
     }
@@ -479,13 +541,17 @@ static void sensor_task(void *args)
 
 void app_main(void)
 {
+    // Initialize NVS
+    ESP_ERROR_CHECK(nvs_flash_init());
+
+    // Initialize deep sleep configuration
+    zb_deep_sleep_init();
+
     esp_err_t ret = sensor_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Sensor initialization failed, terminating application");
         return;
     }
-    // Initialize NVS
-    ESP_ERROR_CHECK(nvs_flash_init());
 
     // Initialize Zigbee platform
     esp_zb_platform_config_t config = {
@@ -493,9 +559,6 @@ void app_main(void)
         .host_config = {.host_connection_mode = ZB_HOST_CONNECTION_MODE_NONE},
     };
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
-
-    // Initialize sensor
-
 
     // Create sensor task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 6, NULL);
