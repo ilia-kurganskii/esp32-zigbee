@@ -8,7 +8,9 @@
  * This example demonstrates how to create a Zigbee CO2 sensor device
  * using the SCD40/SCD41 sensor connected over I2C.
  */
+#include <stdbool.h>
 #include <stdio.h>
+#include "esp_err.h"
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -32,6 +34,7 @@ static const char *TAG = "ZIGBEE_CO2_SENSOR";
         },                                                \
     }
 
+
 #define HA_ESP_SENSOR_ENDPOINT      1
 #define ESP_MANUFACTURER_NAME       "\x0B""Espressif"
 #define ESP_MODEL_IDENTIFIER        "\x0A""CO2-Sensor"
@@ -48,6 +51,36 @@ static const char *TAG = "ZIGBEE_CO2_SENSOR";
 
 /* Global sensor handle */
 static scd40_handle_t g_sensor;
+
+static bool is_data_ready = false;
+static bool is_zigbee_ready = false;
+
+static bool checkConditionForDeepSleep()
+{
+    bool is_ready_for_restart =  is_data_ready && is_zigbee_ready;
+    if (is_ready_for_restart) {
+        ESP_LOGI(TAG, "Conditions met for deep sleep");
+    } else {
+        ESP_LOGW(TAG, "Conditions not met for deep sleep");
+    }
+    return is_ready_for_restart;
+}
+
+static bool set_data_ready()
+{
+    is_data_ready = true;
+    checkConditionForDeepSleep();
+    return true;
+}
+
+static bool set_zigbee_ready()
+{
+    is_zigbee_ready = true;
+    checkConditionForDeepSleep();
+    return true;
+}
+
+
 
 /********************* Sensor Functions *********************/
 
@@ -89,6 +122,11 @@ static esp_err_t sensor_init(void)
         }
     }
 
+    ret = scd40_wake_up(&g_sensor);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Wake up returned: %s", esp_err_to_name(ret));
+    }
+
     // Stop any ongoing periodic measurements (non-critical)
     ret = scd40_stop_periodic_measurement(&g_sensor);
     if (ret != ESP_OK) {
@@ -115,18 +153,18 @@ static esp_err_t sensor_init(void)
     return ESP_OK;
 }
 
-static esp_err_t start_periodic_measurement(void)
+static esp_err_t start_measure_single_shot(void)
 {
     esp_err_t ret;
 
     // Start periodic measurement with retries
     for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        ret = scd40_start_periodic_measurement(&g_sensor);
+        ret = scd40_measure_single_shot(&g_sensor);
         if (ret == ESP_OK) {
             break;
         }
 
-        ESP_LOGW(TAG, "Start periodic measurement attempt %d/%d failed: %s",
+        ESP_LOGW(TAG, "Start measurement single shot attempt %d/%d failed: %s",
                  attempt, MAX_RETRIES, esp_err_to_name(ret));
     }
 
@@ -192,6 +230,10 @@ static esp_err_t sensor_get_data(scd40_measurement_t *data)
 static void sensor_cleanup(void)
 {
     ESP_LOGI(TAG, "Cleaning up sensor resources...");
+    esp_err_t ret = scd40_power_down(&g_sensor);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to power down sensor: %s", esp_err_to_name(ret));
+    }
     scd40_deinit(&g_sensor);
     ESP_LOGI(TAG, "Sensor cleanup complete");
 }
@@ -289,6 +331,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             } else {
                 ESP_LOGI(TAG, "Device rebooted");
+                set_zigbee_ready();
             }
         } else {
             ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)",
@@ -297,7 +340,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                                    ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
         }
         break;
-
     case ESP_ZB_BDB_SIGNAL_STEERING:
         if (err_status == ESP_OK) {
             esp_zb_ieee_addr_t extended_pan_id;
@@ -306,6 +348,8 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
                      extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
+
+            set_zigbee_ready();
         } else {
             ESP_LOGI(TAG, "Network steering was not successful (status: %s)",
                      esp_err_to_name(err_status));
@@ -313,7 +357,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                                    ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         }
         break;
-
     default:
         ESP_LOGI(TAG, "ZDO signal: %s (0x%x), status: %s",
                  esp_zb_zdo_signal_to_string(sig_type), sig_type,
@@ -362,7 +405,7 @@ static void create_zigbee_sensor_device(void)
 
     // Add CO2 measurement cluster
     esp_zb_carbon_dioxide_measurement_cluster_cfg_t co2_cfg = {
-        .measured_value = 0.0004f,      // 400 ppm as fraction (0.0004)
+        .measured_value = 0,      // 400 ppm as fraction (0.0004)
         .min_measured_value = 0.0f,     // 0 ppm
         .max_measured_value = 0.01f,    // 10,000 ppm (1%)
     };
@@ -402,7 +445,7 @@ static void sensor_task(void *args)
     scd40_measurement_t measurement;
     esp_err_t ret;
 
-    ret = start_periodic_measurement();
+    ret = start_measure_single_shot();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start periodic measurement");
         return;
@@ -410,26 +453,37 @@ static void sensor_task(void *args)
         ESP_LOGI(TAG, "Periodic measurement started");
     }
 
-    while (true) {
-        // Get sensor data
-        esp_err_t ret = sensor_get_data(&measurement);
-        if (ret == ESP_OK) {
-            // Update Zigbee attributes with new sensor data
-            update_zigbee_attributes(&measurement);
-        } else {
-            ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
-        }
 
-        // Wait 5 seconds before next measurement
-        ESP_LOGI(TAG, "Waiting for next measurement %i seconds", 5);
+    // Get sensor data
+    ret = sensor_get_data(&measurement);
+    if (ret == ESP_OK) {
+        // Update Zigbee attributes with new sensor data
+        update_zigbee_attributes(&measurement);
+    } else {
+        ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
+    }
+
+    // Wait 5 seconds before next measurement
+    ESP_LOGI(TAG, "Measurement completed");
+
+    sensor_cleanup();
+    set_data_ready();
+
+    while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
+
 }
 
 /********************* Main Function *********************/
 
 void app_main(void)
 {
+    esp_err_t ret = sensor_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Sensor initialization failed, terminating application");
+        return;
+    }
     // Initialize NVS
     ESP_ERROR_CHECK(nvs_flash_init());
 
@@ -441,11 +495,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
 
     // Initialize sensor
-    esp_err_t ret = sensor_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Sensor initialization failed, terminating application");
-        return;
-    }
+
 
     // Create sensor task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 6, NULL);
