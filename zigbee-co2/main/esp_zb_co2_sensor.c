@@ -53,6 +53,8 @@ static const char *TAG = "ZIGBEE_CO2_SENSOR";
 #define MAX_RETRIES                 3
 #define RETRY_DELAY_MS              1000
 
+#define WAKE_UP_TIME_SEC            60
+
 /* Global sensor handle */
 static scd40_handle_t g_sensor;
 
@@ -90,9 +92,9 @@ static void zb_deep_sleep_init(void)
     // Print wake-up reason
     struct timeval now;
     gettimeofday(&now, NULL);
-    int sleep_time_ms = (now.tv_sec - s_sleep_enter_time.tv_sec) * 1000 + 
+    int sleep_time_ms = (now.tv_sec - s_sleep_enter_time.tv_sec) * 1000 +
                         (now.tv_usec - s_sleep_enter_time.tv_usec) / 1000;
-    
+
     esp_sleep_wakeup_cause_t wake_up_cause = esp_sleep_get_wakeup_cause();
     switch (wake_up_cause) {
     case ESP_SLEEP_WAKEUP_TIMER:
@@ -104,10 +106,9 @@ static void zb_deep_sleep_init(void)
         break;
     }
 
-    // Configure RTC timer wake-up for 10 seconds
-    const int wakeup_time_sec = 10;
-    ESP_LOGI(TAG, "Enabling timer wakeup, %ds", wakeup_time_sec);
-    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(wakeup_time_sec * 1000000));
+    // Configure RTC timer wake-up for x seconds
+    ESP_LOGI(TAG, "Enabling timer wakeup, %ds", WAKE_UP_TIME_SEC);
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(WAKE_UP_TIME_SEC * 1000000));
 }
 
 /**
