@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "gpio_control/gpio_control.h"
 #include "ota_updater/ota_updater.h"
+#include "led_signal.h"
 
 #include "logger/logger.h"
 #include "metrics/metrics.h"

@@ -24,6 +24,7 @@
 #include "esp_timer.h"
 #include "driver/rtc_io.h"
 #include <sys/time.h>
+#include "led_signal.h"
 
 static const char *TAG = "ZIGBEE_CO2_SENSOR";
 
@@ -73,6 +74,9 @@ static bool is_zigbee_ready = false;
 static void s_oneshot_timer_callback(void *arg)
 {
     ESP_LOGI(TAG, "Enter deep sleep");
+    led_signal_set_state(LED_STATE_DEEP_SLEEP_PREPARE);
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Show LED pattern before sleep
+    led_signal_stop();
     gettimeofday(&s_sleep_enter_time, NULL);
     esp_deep_sleep_start();
 }
@@ -381,6 +385,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     switch (sig_type) {
     case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
         ESP_LOGI(TAG, "Initialize Zigbee stack");
+        led_signal_set_state(LED_STATE_INITIALIZING);
         esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
         break;
 
@@ -391,14 +396,17 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network steering");
+                led_signal_set_state(LED_STATE_JOINING);
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             } else {
                 ESP_LOGI(TAG, "Device rebooted");
+                led_signal_set_state(LED_STATE_CONNECTED);
                 set_zigbee_ready();
             }
         } else {
             ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)",
                      esp_err_to_name(err_status));
+            led_signal_set_state(LED_STATE_ERROR);
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
                                    ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
         }
@@ -412,10 +420,12 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
 
+            led_signal_set_state(LED_STATE_CONNECTED);
             set_zigbee_ready();
         } else {
             ESP_LOGI(TAG, "Network steering was not successful (status: %s)",
                      esp_err_to_name(err_status));
+            led_signal_set_state(LED_STATE_ERROR);
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
                                    ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         }
@@ -508,10 +518,16 @@ static void sensor_task(void *args)
     scd40_measurement_t measurement;
     esp_err_t ret;
 
+    while (true) {
+
+    led_signal_set_state(LED_STATE_SENSOR_READING);
+
     ret = start_measure_single_shot();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start periodic measurement");
-        return;
+        led_signal_set_state(LED_STATE_ERROR);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        continue;
     } else {
         ESP_LOGI(TAG, "Periodic measurement started");
     }
@@ -522,8 +538,12 @@ static void sensor_task(void *args)
     if (ret == ESP_OK) {
         // Update Zigbee attributes with new sensor data
         update_zigbee_attributes(&measurement);
+        led_signal_set_state(LED_STATE_CONNECTED);
     } else {
         ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
+        led_signal_set_state(LED_STATE_ERROR);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        continue;
     }
 
     // Wait 5 seconds before next measurement
@@ -535,7 +555,7 @@ static void sensor_task(void *args)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
-
+}
 }
 
 /********************* Main Function *********************/
@@ -545,12 +565,16 @@ void app_main(void)
     // Initialize NVS
     ESP_ERROR_CHECK(nvs_flash_init());
 
+    // Initialize LED signal
+    led_signal_init();
+
     // Initialize deep sleep configuration
     zb_deep_sleep_init();
 
     esp_err_t ret = sensor_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Sensor initialization failed, terminating application");
+        led_signal_set_state(LED_STATE_ERROR);
         return;
     }
 

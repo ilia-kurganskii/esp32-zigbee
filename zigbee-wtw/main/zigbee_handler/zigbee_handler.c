@@ -39,6 +39,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     switch (sig_type) {
         case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
             app_log(LOG_LEVEL_INFO, TAG, "Initialize Zigbee stack");
+            led_signal_set_state(LED_STATE_INITIALIZING);
             esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
             break;
 
@@ -49,13 +50,16 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                         esp_zb_bdb_is_factory_new() ? "" : "non ");
                 if (esp_zb_bdb_is_factory_new()) {
                     app_log(LOG_LEVEL_INFO, TAG, "Start network steering");
+                    led_signal_set_state(LED_STATE_JOINING);
                     esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
                 } else {
                     app_log(LOG_LEVEL_INFO, TAG, "Device rebooted");
+                    led_signal_set_state(LED_STATE_CONNECTED);
                 }
             } else {
                 app_log(LOG_LEVEL_WARN, TAG, "Failed to initialize Zigbee stack (status: %s)",
                         esp_err_to_name(err_status));
+                led_signal_set_state(LED_STATE_ERROR);
             }
             break;
 
@@ -67,9 +71,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                         extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
                         extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
                         esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
+                led_signal_set_state(LED_STATE_CONNECTED);
             } else {
                 app_log(LOG_LEVEL_INFO, TAG, "Network steering was not successful (status: %s)",
                         esp_err_to_name(err_status));
+                led_signal_set_state(LED_STATE_ERROR);
                 esp_zb_scheduler_alarm((esp_zb_callback_t)esp_zb_bdb_start_top_level_commissioning,
                                        ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
             }
@@ -86,6 +92,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t *message)
 {
     metrics_increment(METRIC_ZIGBEE_CMD_RECEIVED);
+    led_signal_blink_once(800);
     app_log(LOG_LEVEL_INFO, TAG, "Attribute handler called");
 
     if (!message || message->info.status != ESP_ZB_ZCL_STATUS_SUCCESS) {
@@ -122,6 +129,7 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
         }
     } else if (cluster == OTA_CLUSTER_ID) {
         if (attr_id == OTA_ATTR_ID) {
+            led_signal_set_state(LED_STATE_OTA_UPDATE);
             xTaskCreate(&ota_update_task, "ota_update_task", 8192, NULL, 5, NULL);
         }
     } else {
@@ -198,6 +206,9 @@ static void create_zigbee_device(void)
 // Main Zigbee task
 void zigbee_main_task(void *pvParameters)
 {
+    // Initialize LED signal
+    led_signal_init();
+    
     // Initialize Zigbee stack
     esp_zb_cfg_t zb_nwk_cfg = {
         .esp_zb_role = ESP_ZB_DEVICE_TYPE_ED,
