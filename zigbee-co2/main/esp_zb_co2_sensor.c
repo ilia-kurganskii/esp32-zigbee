@@ -63,9 +63,6 @@ static scd40_handle_t g_sensor;
 static RTC_DATA_ATTR struct timeval s_sleep_enter_time;
 static esp_timer_handle_t s_oneshot_timer;
 
-static bool is_data_ready = false;
-static bool is_zigbee_ready = false;
-
 /********************* Deep Sleep Functions *********************/
 
 /**
@@ -118,33 +115,11 @@ static void zb_deep_sleep_init(void)
 /**
  * @brief Check if conditions are met for deep sleep and trigger if ready
  */
-static bool checkConditionForDeepSleep()
+static void go_to_deep_sleep()
 {
-    bool is_ready_for_restart =  is_data_ready && is_zigbee_ready;
-    if (is_ready_for_restart) {
-        ESP_LOGI(TAG, "Conditions met for deep sleep");
-        // Start one-shot timer to enter deep sleep after 10 seconds
-        const int before_deep_sleep_time_sec = 10;
-        ESP_LOGI(TAG, "Starting one-shot timer for %ds before entering deep sleep", before_deep_sleep_time_sec);
-        ESP_ERROR_CHECK(esp_timer_start_once(s_oneshot_timer, before_deep_sleep_time_sec * 1000000));
-    } else {
-        ESP_LOGW(TAG, "Conditions not met for deep sleep");
-    }
-    return is_ready_for_restart;
-}
-
-static bool set_data_ready()
-{
-    is_data_ready = true;
-    checkConditionForDeepSleep();
-    return true;
-}
-
-static bool set_zigbee_ready()
-{
-    is_zigbee_ready = true;
-    checkConditionForDeepSleep();
-    return true;
+    const int before_deep_sleep_time_sec = 10;
+    ESP_LOGI(TAG, "Starting one-shot timer for %ds before entering deep sleep", before_deep_sleep_time_sec);
+    ESP_ERROR_CHECK(esp_timer_start_once(s_oneshot_timer, before_deep_sleep_time_sec * 1000000));
 }
 
 
@@ -307,69 +282,6 @@ static void sensor_cleanup(void)
 
 /********************* Zigbee Functions *********************/
 
-/**
- * @brief Update Zigbee sensor attributes with new measurements
- *
- * @param data Pointer to measurement data
- */
-static void update_zigbee_attributes(const scd40_measurement_t *data)
-{
-    if (data == NULL) {
-        return;
-    }
-
-    // Update temperature attribute (Zigbee uses 0.01°C units)
-    int16_t temp_value = (int16_t)(data->temperature_c * 100);
-    esp_zb_zcl_status_t status = esp_zb_zcl_set_attribute_val(
-        HA_ESP_SENSOR_ENDPOINT,
-        ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-        &temp_value,
-        false
-    );
-
-    if (status != ESP_ZB_ZCL_STATUS_SUCCESS) {
-        ESP_LOGW(TAG, "Failed to update temperature attribute: 0x%x", status);
-    } else {
-        ESP_LOGI(TAG, "Updated Zigbee temperature: %.2f°C", data->temperature_c);
-    }
-
-    // Update humidity attribute (Zigbee uses 0.01% RH units)
-    uint16_t humidity_value = (uint16_t)(data->humidity_rh * 100);
-    status = esp_zb_zcl_set_attribute_val(
-        HA_ESP_SENSOR_ENDPOINT,
-        ESP_ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-        &humidity_value,
-        false
-    );
-
-    if (status != ESP_ZB_ZCL_STATUS_SUCCESS) {
-        ESP_LOGW(TAG, "Failed to update humidity attribute: 0x%x", status);
-    } else {
-        ESP_LOGI(TAG, "Updated Zigbee humidity: %.2f%%", data->humidity_rh);
-    }
-
-    // Update CO2 attribute (Zigbee uses fraction of 1, so ppm/1000000)
-    float co2_value = (float)data->co2_ppm / 1000000.0f;
-    status = esp_zb_zcl_set_attribute_val(
-        HA_ESP_SENSOR_ENDPOINT,
-        ESP_ZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT,
-        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID,
-        &co2_value,
-        false
-    );
-
-    if (status != ESP_ZB_ZCL_STATUS_SUCCESS) {
-        ESP_LOGW(TAG, "Failed to update CO2 attribute: 0x%x", status);
-    } else {
-        ESP_LOGI(TAG, "Updated Zigbee CO2: %d ppm", data->co2_ppm);
-    }
-}
-
 static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
 {
     ESP_RETURN_ON_FALSE(esp_zb_bdb_start_top_level_commissioning(mode_mask) == ESP_OK, ,
@@ -401,7 +313,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             } else {
                 ESP_LOGI(TAG, "Device rebooted");
                 led_signal_set_state(LED_STATE_CONNECTED);
-                set_zigbee_ready();
+                go_to_deep_sleep();
             }
         } else {
             ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)",
@@ -421,7 +333,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
 
             led_signal_set_state(LED_STATE_CONNECTED);
-            set_zigbee_ready();
+            go_to_deep_sleep();
         } else {
             ESP_LOGI(TAG, "Network steering was not successful (status: %s)",
                      esp_err_to_name(err_status));
@@ -453,60 +365,84 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
     return ret;
 }
 
-static void create_zigbee_sensor_device(void)
+static void create_zigbee_sensor_device(const scd40_measurement_t *data)
 {
-    // Create temperature sensor device with basic + identify + temperature clusters
-    esp_zb_temperature_sensor_cfg_t sensor_cfg = ESP_ZB_DEFAULT_TEMPERATURE_SENSOR_CONFIG();
-    esp_zb_ep_list_t *temp_sensor_ep = esp_zb_temperature_sensor_ep_create(HA_ESP_SENSOR_ENDPOINT, &sensor_cfg);
+    // Convert sensor measurements to Zigbee attribute format
+    int16_t temp_value = (int16_t)(data->temperature_c * 100);      // Zigbee uses 0.01°C units
+    uint16_t humidity_value = (uint16_t)(data->humidity_rh * 100);  // Zigbee uses 0.01% RH units
+    float co2_value = (float)data->co2_ppm / 1000000.0f;            // Zigbee uses fraction (ppm/1000000)
 
-    // Get cluster list and add manufacturer info to basic cluster
-    esp_zb_cluster_list_t *cluster_list = esp_zb_ep_list_get_ep(temp_sensor_ep, HA_ESP_SENSOR_ENDPOINT);
-    esp_zb_attribute_list_t *basic_cluster = esp_zb_cluster_list_get_cluster(
-        cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    ESP_LOGI(TAG, "Creating Zigbee sensor device with:");
+    ESP_LOGI(TAG, "  Temperature: %.2f°C (raw: %d)", data->temperature_c, temp_value);
+    ESP_LOGI(TAG, "  Humidity: %.2f%% (raw: %u)", data->humidity_rh, humidity_value);
+    ESP_LOGI(TAG, "  CO2: %d ppm (raw: %.6f)", data->co2_ppm, co2_value);
 
+    // Create temperature measurement cluster with actual sensor data
+    esp_zb_temperature_meas_cluster_cfg_t temp_cfg = {
+        .measured_value = temp_value,
+        .min_value = -5000,   // -50°C
+        .max_value = 10000,   // 100°C
+    };
+    esp_zb_attribute_list_t *temp_cluster = esp_zb_temperature_meas_cluster_create(&temp_cfg);
+
+    // Create humidity measurement cluster with actual sensor data
+    esp_zb_humidity_meas_cluster_cfg_t humidity_cfg = {
+        .measured_value = humidity_value,
+        .min_value = 0,
+        .max_value = 10000,   // 100% RH
+    };
+    esp_zb_attribute_list_t *humidity_cluster = esp_zb_humidity_meas_cluster_create(&humidity_cfg);
+
+    // Create CO2 measurement cluster with actual sensor data
+    esp_zb_carbon_dioxide_measurement_cluster_cfg_t co2_cfg = {
+        .measured_value = co2_value,
+        .min_measured_value = 0.0f,      // 0 ppm
+        .max_measured_value = 0.01f,     // 10,000 ppm (1%)
+    };
+    esp_zb_attribute_list_t *co2_cluster = esp_zb_carbon_dioxide_measurement_cluster_create(&co2_cfg);
+
+    // Create basic cluster with manufacturer info
+    esp_zb_basic_cluster_cfg_t basic_cfg = {
+        .zcl_version = ESP_ZB_ZCL_BASIC_ZCL_VERSION_DEFAULT_VALUE,
+        .power_source = ESP_ZB_ZCL_BASIC_POWER_SOURCE_DEFAULT_VALUE,
+    };
+    esp_zb_attribute_list_t *basic_cluster = esp_zb_basic_cluster_create(&basic_cfg);
     esp_zb_basic_cluster_add_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
                                    (void *)ESP_MANUFACTURER_NAME);
     esp_zb_basic_cluster_add_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
                                    (void *)ESP_MODEL_IDENTIFIER);
-    esp_zb_humidity_meas_cluster_cfg_t humidity_cfg = {
-        .measured_value = 0,
-        .min_value = 0,
-        .max_value = 10000,  // 100% RH (scaled by 100)
-    };
-    esp_zb_attribute_list_t *humidity_cluster = esp_zb_humidity_meas_cluster_create(&humidity_cfg);
-    esp_zb_cluster_list_add_humidity_meas_cluster(cluster_list, humidity_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
-    // Add CO2 measurement cluster
-    esp_zb_carbon_dioxide_measurement_cluster_cfg_t co2_cfg = {
-        .measured_value = 0,      // 400 ppm as fraction (0.0004)
-        .min_measured_value = 0.0f,     // 0 ppm
-        .max_measured_value = 0.01f,    // 10,000 ppm (1%)
+    // Create identify cluster
+    esp_zb_identify_cluster_cfg_t identify_cfg = {
+        .identify_time = 0,
     };
-    esp_zb_attribute_list_t *co2_cluster = esp_zb_carbon_dioxide_measurement_cluster_create(&co2_cfg);
+    esp_zb_attribute_list_t *identify_cluster = esp_zb_identify_cluster_create(&identify_cfg);
+
+    // Create cluster list and add all clusters
+    esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
+    esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_identify_cluster(cluster_list, identify_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_temperature_meas_cluster(cluster_list, temp_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_humidity_meas_cluster(cluster_list, humidity_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_carbon_dioxide_measurement_cluster(cluster_list, co2_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
-    // Register endpoint
-    esp_zb_device_register(temp_sensor_ep);
+    // Create endpoint and add cluster list
+    esp_zb_ep_list_t *ep_list = esp_zb_ep_list_create();
+    esp_zb_endpoint_config_t endpoint_config = {
+        .endpoint = HA_ESP_SENSOR_ENDPOINT,
+        .app_profile_id = ESP_ZB_AF_HA_PROFILE_ID,
+        .app_device_id = ESP_ZB_HA_TEMPERATURE_SENSOR_DEVICE_ID,
+        .app_device_version = 0
+    };
+    esp_zb_ep_list_add_ep(ep_list, cluster_list, endpoint_config);
+
+    // Register the device
+    esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
 
-    ESP_LOGI(TAG, "Zigbee CO2 sensor device created with temperature, humidity, and CO2 clusters");
+    ESP_LOGI(TAG, "Zigbee multi-sensor device created with all 3 measurements");
 }
 
-static void esp_zb_task(void *pvParameters)
-{
-    // Initialize Zigbee stack
-    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
-    esp_zb_init(&zb_nwk_cfg);
-
-    // Create Zigbee device
-    create_zigbee_sensor_device();
-
-    // Start Zigbee stack
-    ESP_ERROR_CHECK(esp_zb_start(false));
-
-    // Main Zigbee loop
-    esp_zb_stack_main_loop();
-}
 
 /**
  * @brief Main sensor task that periodically takes measurements
@@ -518,44 +454,52 @@ static void sensor_task(void *args)
     scd40_measurement_t measurement;
     esp_err_t ret;
 
+
     while (true) {
+        led_signal_set_state(LED_STATE_SENSOR_READING);
 
-    led_signal_set_state(LED_STATE_SENSOR_READING);
-
-    ret = start_measure_single_shot();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start periodic measurement");
-        led_signal_set_state(LED_STATE_ERROR);
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        continue;
-    } else {
-        ESP_LOGI(TAG, "Periodic measurement started");
-    }
+        ret = start_measure_single_shot();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to start periodic measurement");
+            led_signal_set_state(LED_STATE_ERROR);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        } else {
+            ESP_LOGI(TAG, "Periodic measurement started");
+        }
 
 
-    // Get sensor data
-    ret = sensor_get_data(&measurement);
-    if (ret == ESP_OK) {
-        // Update Zigbee attributes with new sensor data
-        update_zigbee_attributes(&measurement);
-        led_signal_set_state(LED_STATE_CONNECTED);
-    } else {
-        ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
-        led_signal_set_state(LED_STATE_ERROR);
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        continue;
+        // Get sensor data
+        ret = sensor_get_data(&measurement);
+        if (ret == ESP_OK && measurement.co2_ppm > 0) {
+            // Update Zigbee attributes with new sensor data
+            led_signal_set_state(LED_STATE_COMMAND_RECEIVED);
+            break;
+        } else {
+            ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
+            led_signal_set_state(LED_STATE_ERROR);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        }
     }
 
     // Wait 5 seconds before next measurement
     ESP_LOGI(TAG, "Measurement completed");
 
     sensor_cleanup();
-    set_data_ready();
+    // Initialize Zigbee stack
+    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
+    esp_zb_init(&zb_nwk_cfg);
 
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-}
+    // Create Zigbee device
+    create_zigbee_sensor_device(&measurement);
+
+    // Start Zigbee stack
+    ESP_ERROR_CHECK(esp_zb_start(false));
+
+    // Main Zigbee loop
+    esp_zb_stack_main_loop();
+
 }
 
 /********************* Main Function *********************/
@@ -587,7 +531,4 @@ void app_main(void)
 
     // Create sensor task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 6, NULL);
-
-    // Create Zigbee task
-    xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
 }
