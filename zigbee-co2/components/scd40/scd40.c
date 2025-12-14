@@ -330,10 +330,22 @@ esp_err_t scd40_read_measurement(scd40_handle_t *handle, scd40_measurement_t *me
         return ret;
     }
 
+    // Log raw values for debugging
+    ESP_LOGI(TAG, "Raw values - CO2: 0x%04X (%u), Temp: 0x%04X (%u), Humidity: 0x%04X (%u)",
+             data[0], data[0], data[1], data[1], data[2], data[2]);
+
     // Convert raw values according to SCD40 datasheet
     measurement->co2_ppm = data[0];
     measurement->temperature_c = -45.0f + 175.0f * data[1] / 65536.0f;
-    measurement->humidity_rh = 100.0f * data[2] / 65536.0f;
+    
+    // Check for invalid humidity reading (0xFFFF indicates sensor error or unavailable data)
+    // This happens when using single-shot mode on SCD41 without RHT measurement
+    if (data[2] == 0xFFFF) {
+        ESP_LOGW(TAG, "Humidity data unavailable (0xFFFF) - sensor may need RHT single-shot measurement");
+        measurement->humidity_rh = 0.0f; // Set to 0 to indicate invalid
+    } else {
+        measurement->humidity_rh = 100.0f * data[2] / 65536.0f;
+    }
 
     ESP_LOGD(TAG, "CO2: %d ppm, Temp: %.2f °C, Humidity: %.2f %%",
              measurement->co2_ppm, measurement->temperature_c, measurement->humidity_rh);
