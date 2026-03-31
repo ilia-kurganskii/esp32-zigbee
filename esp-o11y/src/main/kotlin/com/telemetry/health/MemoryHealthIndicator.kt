@@ -3,6 +3,8 @@ package com.telemetry.health
 import org.springframework.boot.actuate.health.Health
 import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.stereotype.Component
+import java.text.NumberFormat
+import java.util.Locale
 
 @Component
 class MemoryHealthIndicator : HealthIndicator {
@@ -41,8 +43,8 @@ class MemoryHealthIndicator : HealthIndicator {
             .withDetail("memory_free_bytes", freeMemory)
             .withDetail("memory_total_bytes", totalMemory)
             .withDetail("memory_max_bytes", maxMemory)
-            .withDetail("memory_usage_ratio", String.format("%.2f", memoryUsageRatio))
-            .withDetail("memory_usage_percent", String.format("%.1f%%", memoryUsageRatio * 100))
+            .withDetail("memory_usage_ratio", String.format(Locale.US, "%.2f", memoryUsageRatio))
+            .withDetail("memory_usage_percent", String.format(Locale.US, "%.1f%%", memoryUsageRatio * 100))
             .withDetail("thresholds", mapOf(
                 "warning" to "${(MEMORY_WARNING_THRESHOLD * 100).toInt()}%",
                 "critical" to "${(MEMORY_CRITICAL_THRESHOLD * 100).toInt()}%"
