@@ -28,12 +28,16 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch base branch
+      if: github.event_name == 'pull_request'
+      run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
     - name: Check for Zigbee CO2 changes
       id: changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
           # For PRs, compare with base branch
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-co2/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^zigbee-co2/' || true)
         else
           # For pushes, compare with previous commit
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-co2/' || true)
@@ -52,7 +56,7 @@ jobs:
       id: comp-changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^components/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
         fi
@@ -87,11 +91,15 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch base branch
+      if: github.event_name == 'pull_request'
+      run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
     - name: Check for Zigbee Light changes
       id: changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-light/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^zigbee-light/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-light/' || true)
         fi
@@ -108,7 +116,7 @@ jobs:
       id: comp-changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^components/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
         fi
@@ -141,11 +149,15 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch base branch
+      if: github.event_name == 'pull_request'
+      run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
     - name: Check for Zigbee Remote changes
       id: changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-remote/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^zigbee-remote/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-remote/' || true)
         fi
@@ -162,7 +174,7 @@ jobs:
       id: comp-changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^components/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
         fi
@@ -195,11 +207,15 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch base branch
+      if: github.event_name == 'pull_request'
+      run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
     - name: Check for Zigbee WTW changes
       id: changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-wtw/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^zigbee-wtw/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-wtw/' || true)
         fi
@@ -216,7 +232,7 @@ jobs:
       id: comp-changes
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+          CHANGED=$(git diff --name-only ${{ github.base_ref }} HEAD | grep -E '^components/' || true)
         else
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
         fi
