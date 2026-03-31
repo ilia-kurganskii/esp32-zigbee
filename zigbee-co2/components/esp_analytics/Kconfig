@@ -1,0 +1,52 @@
+menu "ESP Analytics Configuration"
+
+config ESP_ANALYTICS_SERVER_URL
+    string "Analytics server URL"
+    default "http://localhost:8080/api/v1/telemetry"
+    help "URL of the telemetry service endpoint for analytics data"
+
+config ESP_ANALYTICS_API_KEY
+    string "API key for authentication"
+    default ""
+    help "API key for authenticating with the telemetry service"
+
+config ESP_ANALYTICS_DEVICE_ID
+    string "Device identifier"
+    default "esp32-device"
+    help "Unique identifier for this device in analytics"
+
+config ESP_ANALYTICS_TRANSMISSION_INTERVAL_SEC
+    int "Transmission interval (seconds)"
+    range 30 3600
+    default 300
+    help "How often to transmit buffered analytics data"
+
+config ESP_ANALYTICS_ENABLE_DEEP_SLEEP
+    bool "Enable deep sleep between transmissions"
+    default y
+    help "Enable deep sleep mode to save power between transmissions"
+
+config ESP_ANALYTICS_BUFFER_SIZE
+    int "Metric buffer size"
+    range 10 1000
+    default 100
+    help "Maximum number of metrics to buffer before transmission"
+
+config ESP_ANALYTICS_ENABLE_WIFI_POWER_SAVE
+    bool "Enable WiFi power saving"
+    default y
+    help "Enable WiFi power saving mode during transmission"
+
+config ESP_ANALYTICS_RETRY_ATTEMPTS
+    int "Maximum retry attempts for failed transmissions"
+    range 0 10
+    default 3
+    help "Number of retry attempts for failed HTTP requests"
+
+config ESP_ANALYTICS_LOG_LEVEL
+    int "Analytics component log level"
+    range 0 5
+    default 2
+    help "Log level: 0=NONE, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG, 5=VERBOSE"
+
+endmenu
