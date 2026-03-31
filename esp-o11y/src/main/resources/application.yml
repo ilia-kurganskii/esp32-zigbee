@@ -1,0 +1,55 @@
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+      enabled: true
+      probes:
+        enabled: true
+    prometheus:
+      enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    web:
+      server:
+        request:
+          autotime:
+            enabled: true
+    enable:
+      http: true
+      jvm: true
+
+# Telemetry service configuration
+telemetry:
+  server:
+    port: 8080
+    host: "0.0.0.0"
+  validation:
+    prometheus-whitelist: "esp32_temperature_celsius,esp32_memory_usage_bytes,esp32_wifi_signal_strength"
+    max-otel-batch-size: 1048576
+    max-events-array-size: 100
+  grafana:
+    collector-url: "http://localhost:3000/api/push"
+    timeout: "30s"
+    retry-enabled: false
+  security:
+    api-keys:
+      - "default-key-change-in-production"
+      - "test-api-key"
+
+logging:
+  level:
+    com.telemetry: INFO
+    org.springframework: INFO

@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "seeds-studio") (type "KiCad") (uri "/Users/ilia-kurganskii-air/projects/esp32-zigbee/zigbee-co2/kicad/seeed_studio/footprints") (options "") (descr ""))
+	(lib (name "Library") (type "KiCad") (uri "/Users/ilia-kurganskii-air/projects/esp32-zigbee/zigbee-co2/kicad/custom/footprints/Library.pretty") (options "") (descr ""))
+)
