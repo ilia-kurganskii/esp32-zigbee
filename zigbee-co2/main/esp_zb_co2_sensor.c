@@ -25,6 +25,11 @@
 #include "driver/rtc_io.h"
 #include <sys/time.h>
 #include "led_signal.h"
+#include "esp_analytics.h"
+#include "sdkconfig.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
 
 static const char *TAG = "ZIGBEE_CO2_SENSOR";
 
@@ -63,6 +68,190 @@ static scd40_handle_t g_sensor;
 static RTC_DATA_ATTR struct timeval s_sleep_enter_time;
 static esp_timer_handle_t s_oneshot_timer;
 
+/******************** WiFi Functions *********************/
+
+static bool wifi_connected = false;
+
+/**
+ * @brief WiFi event handler
+ */
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT) {
+        switch (event_id) {
+            case WIFI_EVENT_STA_START:
+                ESP_LOGI(TAG, "WiFi station started");
+                esp_wifi_connect();
+                break;
+            case WIFI_EVENT_STA_CONNECTED:
+                ESP_LOGI(TAG, "WiFi connected to AP");
+                break;
+            case WIFI_EVENT_STA_DISCONNECTED:
+                ESP_LOGI(TAG, "WiFi disconnected from AP");
+                wifi_connected = false;
+                esp_wifi_connect();  // Try to reconnect
+                break;
+            case WIFI_EVENT_STA_STOP:
+                ESP_LOGI(TAG, "WiFi station stopped");
+                wifi_connected = false;
+                break;
+            default:
+                break;
+        }
+    } else if (event_base == IP_EVENT) {
+        switch (event_id) {
+            case IP_EVENT_STA_GOT_IP:
+                ESP_LOGI(TAG, "Got IP address");
+                wifi_connected = true;
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+/**
+ * @brief Initialize WiFi connection
+ */
+static esp_err_t wifi_init(void)
+{
+    ESP_LOGI(TAG, "Initializing WiFi");
+    
+    // Initialize network interface
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    
+    // Create default WiFi station
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    assert(sta_netif);
+    
+    // Initialize WiFi
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    
+    // Register event handler
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
+    
+    // Set WiFi mode to station
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    
+    // Configure WiFi
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = "your_wifi_ssid",
+            .password = "your_wifi_password",
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    
+    ESP_LOGW(TAG, "Using hardcoded WiFi credentials - please update with your WiFi details");
+    
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    
+    ESP_LOGI(TAG, "WiFi initialization completed");
+    return ESP_OK;
+}
+
+/**
+ * @brief Check if WiFi is connected
+ */
+static bool is_wifi_connected(void)
+{
+    return wifi_connected;
+}
+
+/******************** Analytics Functions *********************/
+
+/**
+ * @brief Initialize analytics component with configuration
+ */
+static esp_err_t analytics_init_component(void)
+{
+    ESP_LOGI(TAG, "Initializing analytics component");
+    
+    esp_analytics_config_t config = {
+        .server_url = CONFIG_ESP_ANALYTICS_SERVER_URL,
+        .api_key = CONFIG_ESP_ANALYTICS_API_KEY,
+        .device_id = CONFIG_ESP_ANALYTICS_DEVICE_ID,
+        .transmission_interval_sec = CONFIG_ESP_ANALYTICS_TRANSMISSION_INTERVAL_SEC,
+        .enable_deep_sleep = CONFIG_ESP_ANALYTICS_ENABLE_DEEP_SLEEP,
+        .buffer_size = CONFIG_ESP_ANALYTICS_BUFFER_SIZE
+    };
+    
+    esp_err_t err = esp_analytics_init(&config);
+    if (err == ESP_OK) {
+        esp_analytics_log_info("system_init", "Analytics component initialized successfully");
+        ESP_LOGI(TAG, "Analytics initialized successfully");
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize analytics: %s", esp_err_to_name(err));
+    }
+    
+    return err;
+}
+
+/**
+ * @brief Track sensor reading with analytics
+ */
+static void analytics_track_sensor_reading(const scd40_measurement_t *measurement)
+{
+    if (measurement == NULL) return;
+    
+    // Increment sensor reading counter
+    esp_analytics_increase(ESP_ANALYTICS_METRIC_SENSOR_READINGS);
+    
+    // Log the sensor reading with formatted message
+    char message[128];
+    snprintf(message, sizeof(message), "CO2: %d ppm, Temp: %.1f°C, Humidity: %.1f%%", 
+             measurement->co2_ppm, measurement->temperature_c, measurement->humidity_rh);
+    esp_analytics_log_info("co2_reading", message);
+    
+    // Update system metrics
+    esp_analytics_set(ESP_ANALYTICS_METRIC_MEMORY_USAGE, esp_get_free_heap_size());
+}
+
+/**
+ * @brief Track sensor errors with analytics
+ */
+static void analytics_track_sensor_error(const char *error_context, esp_err_t error_code)
+{
+    esp_analytics_increase(ESP_ANALYTICS_METRIC_ERROR_COUNT);
+    
+    // Format error message
+    char message[128];
+    snprintf(message, sizeof(message), "%s: %s", error_context, esp_err_to_name(error_code));
+    esp_analytics_log_error("sensor_error", message);
+}
+
+/**
+ * @brief Track Zigbee messages with analytics
+ */
+static void analytics_track_zigbee_message(const char *message_type, uint16_t cluster_id)
+{
+    esp_analytics_increase(ESP_ANALYTICS_METRIC_ZIGBEE_MESSAGES);
+    
+    // Format zigbee message
+    char message[128];
+    snprintf(message, sizeof(message), "Type: %s, Cluster: 0x%04X", message_type, cluster_id);
+    esp_analytics_log_info("zigbee_message", message);
+}
+
+/**
+ * @brief Cleanup analytics before deep sleep
+ */
+static void analytics_cleanup_before_sleep(void)
+{
+    ESP_LOGI(TAG, "Cleaning up analytics before deep sleep");
+    
+    // Flush any pending analytics data
+    esp_err_t err = esp_analytics_flush();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to flush analytics before sleep: %s", esp_err_to_name(err));
+    }
+}
+
 /********************* Deep Sleep Functions *********************/
 
 /**
@@ -71,6 +260,10 @@ static esp_timer_handle_t s_oneshot_timer;
 static void s_oneshot_timer_callback(void *arg)
 {
     ESP_LOGI(TAG, "Enter deep sleep");
+    
+    // Flush analytics before sleep
+    analytics_cleanup_before_sleep();
+    
     led_signal_set_state(LED_STATE_DEEP_SLEEP_PREPARE);
     vTaskDelay(pdMS_TO_TICKS(1000)); // Show LED pattern before sleep
     led_signal_stop();
@@ -149,12 +342,16 @@ static esp_err_t sensor_init(void)
     for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         ret = scd40_init(&sensor_config, &g_sensor);
         if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "Sensor initialized successfully");
+            ESP_LOGI(TAG, "SCD40 sensor initialized successfully");
+            char message[128];
+            snprintf(message, sizeof(message), "SCD40 sensor initialized successfully on attempt %d", attempt);
+            esp_analytics_log_info("sensor_init", message);
             break;
         }
 
-        ESP_LOGW(TAG, "Initialization attempt %d/%d failed: %s",
+        ESP_LOGW(TAG, "SCD40 sensor initialization attempt %d/%d failed: %s",
                  attempt, MAX_RETRIES, esp_err_to_name(ret));
+        analytics_track_sensor_error("sensor_init", ret);
 
         if (attempt < MAX_RETRIES) {
             vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
@@ -251,6 +448,10 @@ static esp_err_t sensor_get_data(scd40_measurement_t *data)
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "CO2: %d ppm | Temperature: %.2f °C | Humidity: %.2f %%",
                      data->co2_ppm, data->temperature_c, data->humidity_rh);
+            
+            // Track successful sensor reading with analytics
+            analytics_track_sensor_reading(data);
+            
             return ESP_OK;
         }
 
@@ -297,6 +498,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     switch (sig_type) {
     case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
         ESP_LOGI(TAG, "Initialize Zigbee stack");
+        analytics_track_zigbee_message("skip_startup", 0);
         led_signal_set_state(LED_STATE_INITIALIZING);
         esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
         break;
@@ -461,11 +663,13 @@ static void sensor_task(void *args)
         ret = scd40_start_periodic_measurement(&g_sensor);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to start periodic measurement");
+            analytics_track_sensor_error("periodic_measurement", ret);
             led_signal_set_state(LED_STATE_ERROR);
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
         } else {
             ESP_LOGI(TAG, "Periodic measurement started");
+            esp_analytics_log_info("periodic_measurement", "Periodic measurement started successfully");
         }
 
 
@@ -474,9 +678,13 @@ static void sensor_task(void *args)
         if (ret == ESP_OK && measurement.co2_ppm > 0) {
             // Update Zigbee attributes with new sensor data
             led_signal_set_state(LED_STATE_COMMAND_RECEIVED);
+            char message[128];
+            snprintf(message, sizeof(message), "CO2 measurement completed successfully: %d ppm", measurement.co2_ppm);
+            esp_analytics_log_info("measurement_complete", message);
             break;
         } else {
             ESP_LOGW(TAG, "Failed to get sensor data, continuing...");
+            analytics_track_sensor_error("sensor_data_retrieval", ret);
             led_signal_set_state(LED_STATE_ERROR);
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
@@ -506,29 +714,35 @@ static void sensor_task(void *args)
 
 void app_main(void)
 {
-    // Initialize NVS
+    ESP_LOGI(TAG, "Starting Zigbee CO2 Sensor with WiFi Analytics");
+
     ESP_ERROR_CHECK(nvs_flash_init());
-
-    // Initialize LED signal
     led_signal_init();
-
-    // Initialize deep sleep configuration
-    zb_deep_sleep_init();
-
-    esp_err_t ret = sensor_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Sensor initialization failed, terminating application");
-        led_signal_set_state(LED_STATE_ERROR);
-        return;
-    }
-
+    
+    // Initialize WiFi for analytics
+    wifi_init();
+    
+    // Initialize analytics component
+    analytics_init_component();
+    
     // Initialize Zigbee platform
     esp_zb_platform_config_t config = {
         .radio_config = {.radio_mode = ZB_RADIO_MODE_NATIVE},
         .host_config = {.host_connection_mode = ZB_HOST_CONNECTION_MODE_NONE},
     };
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
-
+    
+    // Initialize Zigbee deep sleep
+    zb_deep_sleep_init();
+    
+    // Initialize sensor
+    if (sensor_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize sensor");
+        return;
+    }
+    
     // Create sensor task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 6, NULL);
+    
+    ESP_LOGI(TAG, "Zigbee CO2 Sensor started successfully");
 }
