@@ -1,0 +1,256 @@
+name: Zigbee Projects Build Validation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'zigbee-*/**'
+      - 'components/**'
+      - '.github/workflows/zigbee-build-validation.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'zigbee-*/**'
+      - 'components/**'
+      - '.github/workflows/zigbee-build-validation.yml'
+
+jobs:
+  build-zigbee-co2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:latest
+    strategy:
+      matrix:
+        target: [esp32c6]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for Zigbee CO2 changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          # For PRs, compare with base branch
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-co2/' || true)
+        else
+          # For pushes, compare with previous commit
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-co2/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "zigbee-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Zigbee CO2 changes detected:"
+          echo "$CHANGED"
+        else
+          echo "zigbee-changed=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ No Zigbee CO2 changes detected"
+        fi
+
+    - name: Check for Components changes
+      id: comp-changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "components-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Components changes detected:"
+          echo "$CHANGED"
+        else
+          echo "components-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build Zigbee CO2 Sensor
+      if: steps.changes.outputs.zigbee-changed == 'true' || steps.comp-changes.outputs.components-changed == 'true'
+      working-directory: ./zigbee-co2
+      run: |
+        idf.py set-target ${{ matrix.target }}
+        idf.py fullclean
+        idf.py build
+        echo "✅ Zigbee CO2 build successful for ${{ matrix.target }}"
+
+  build-zigbee-light:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:latest
+    strategy:
+      matrix:
+        target: [esp32c6]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for Zigbee Light changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-light/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-light/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "zigbee-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Zigbee Light changes detected:"
+          echo "$CHANGED"
+        else
+          echo "zigbee-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Check for Components changes
+      id: comp-changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "components-changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "components-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build Zigbee Light
+      if: steps.changes.outputs.zigbee-changed == 'true' || steps.comp-changes.outputs.components-changed == 'true'
+      working-directory: ./zigbee-light
+      run: |
+        idf.py set-target ${{ matrix.target }}
+        idf.py fullclean
+        idf.py build
+        echo "✅ Zigbee Light build successful for ${{ matrix.target }}"
+
+  build-zigbee-remote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:latest
+    strategy:
+      matrix:
+        target: [esp32c6]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for Zigbee Remote changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-remote/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-remote/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "zigbee-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Zigbee Remote changes detected:"
+          echo "$CHANGED"
+        else
+          echo "zigbee-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Check for Components changes
+      id: comp-changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "components-changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "components-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build Zigbee Remote
+      if: steps.changes.outputs.zigbee-changed == 'true' || steps.comp-changes.outputs.components-changed == 'true'
+      working-directory: ./zigbee-remote
+      run: |
+        idf.py set-target ${{ matrix.target }}
+        idf.py fullclean
+        idf.py build
+        echo "✅ Zigbee Remote build successful for ${{ matrix.target }}"
+
+  build-zigbee-wtw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:latest
+    strategy:
+      matrix:
+        target: [esp32c6]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for Zigbee WTW changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-wtw/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-wtw/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "zigbee-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Zigbee WTW changes detected:"
+          echo "$CHANGED"
+        else
+          echo "zigbee-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Check for Components changes
+      id: comp-changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
+        fi
+        
+        if [ -n "$CHANGED" ]; then
+          echo "components-changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "components-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build Zigbee WTW
+      if: steps.changes.outputs.zigbee-changed == 'true' || steps.comp-changes.outputs.components-changed == 'true'
+      working-directory: ./zigbee-wtw
+      run: |
+        idf.py set-target ${{ matrix.target }}
+        idf.py fullclean
+        idf.py build
+        echo "✅ Zigbee WTW build successful for ${{ matrix.target }}"
+
+  build-summary:
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [build-zigbee-co2, build-zigbee-light, build-zigbee-remote, build-zigbee-wtw]
+    steps:
+    - name: Build Summary
+      run: |
+        echo "## Zigbee Projects Build Validation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "- Zigbee CO2: ${{ needs.build-zigbee-co2.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Zigbee Light: ${{ needs.build-zigbee-light.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Zigbee Remote: ${{ needs.build-zigbee-remote.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Zigbee WTW: ${{ needs.build-zigbee-wtw.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Validation Target" >> $GITHUB_STEP_SUMMARY
+        echo "- ESP32C6 (recommended for Zigbee)" >> $GITHUB_STEP_SUMMARY
