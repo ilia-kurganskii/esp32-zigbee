@@ -12,9 +12,20 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.http.converter.HttpMessageNotReadableException
 import jakarta.validation.Valid
 import java.time.Instant
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
+import io.swagger.v3.oas.annotations.media.Content
+import io.swagger.v3.oas.annotations.media.ExampleObject
+import io.swagger.v3.oas.annotations.media.Schema
+import io.swagger.v3.oas.annotations.responses.ApiResponse
+import io.swagger.v3.oas.annotations.responses.ApiResponses
+import io.swagger.v3.oas.annotations.security.SecurityRequirement
+import io.swagger.v3.oas.annotations.tags.Tag
 
+@Tag(name = "Telemetry", description = "Telemetry data collection endpoints")
 @RestController
 @RequestMapping("/api/v1")
+@SecurityRequirement(name = "ApiKeyAuth")
 class TelemetryController(
     private val validationService: ValidationService,
     private val metricsService: com.telemetry.service.MetricsService
@@ -22,6 +33,93 @@ class TelemetryController(
 
     private val logger = LoggerFactory.getLogger(TelemetryController::class.java)
 
+    @Operation(
+        summary = "Submit telemetry data from ESP32 device",
+        description = "Submit a batch of telemetry data including OpenTelemetry metrics, events, and Prometheus metrics. The service validates the data and forwards it to Grafana collector. Validation Rules: Prometheus metrics are filtered using a whitelist, OTEL data size is limited, Events array size is limited. Rate Limits: Maximum 1000 OTEL metrics, 100 events, 100 Prometheus metrics per request.",
+        requestBody = io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "Telemetry data batch from ESP32 device",
+            required = true,
+            content = [
+                Content(
+                    mediaType = "application/json",
+                    examples = [
+                        ExampleObject(
+                            name = "validRequest",
+                            summary = "Valid telemetry request with all data types",
+                            value = "{\"deviceId\":\"esp32-001\",\"timestamp\":\"2025-07-20T10:30:00Z\",\"otel\":[{\"name\":\"system.cpu.usage\",\"value\":45.2,\"labels\":{\"core\":\"0\"},\"timestamp\":\"2025-07-20T10:30:00Z\"}],\"events\":[{\"type\":\"wifi.connected\",\"message\":\"Connected to WiFi network\",\"severity\":\"INFO\",\"timestamp\":\"2025-07-20T10:29:58Z\",\"metadata\":{\"ssid\":\"IoT-Network\",\"rssi\":-45}}],\"metrics\":[{\"name\":\"esp32_temperature_celsius\",\"value\":23.5,\"labels\":{\"sensor\":\"internal\"},\"help\":\"ESP32 internal temperature\",\"type\":\"gauge\"}]}"
+                        ),
+                        ExampleObject(
+                            name = "minimalRequest",
+                            summary = "Minimal valid request",
+                            value = "{\"deviceId\":\"esp32-002\",\"timestamp\":\"2025-07-20T10:30:00Z\"}"
+                        )
+                    ]
+                )
+            ]
+        ),
+        responses = [
+            ApiResponse(
+                responseCode = "200",
+                description = "Telemetry data processed successfully",
+                content = [
+                    Content(
+                        mediaType = "application/json",
+                        examples = [
+                            ExampleObject(
+                                name = "success",
+                                summary = "Successfully processed without warnings",
+                                value = "{\"status\":\"accepted\",\"validatedMetrics\":5,\"truncatedOtel\":false,\"truncatedEvents\":false,\"droppedPrometheusMetrics\":0}"
+                            ),
+                            ExampleObject(
+                                name = "successWithWarnings",
+                                summary = "Successfully processed with warnings",
+                                value = "{\"status\":\"accepted_with_warnings\",\"validatedMetrics\":3,\"truncatedOtel\":true,\"truncatedEvents\":false,\"droppedPrometheusMetrics\":2,\"warnings\":[\"OTEL data truncated due to size limit\",\"Dropped 2 non-whitelisted Prometheus metrics\"]}"
+                            )
+                        ]
+                    )
+                ]
+            ),
+            ApiResponse(
+                responseCode = "400",
+                description = "Bad request - invalid JSON or validation failed",
+                content = [
+                    Content(
+                        mediaType = "application/json",
+                        examples = [
+                            ExampleObject(
+                                name = "invalidJson",
+                                summary = "Invalid JSON format",
+                                value = "{\"error\":\"Bad Request\",\"message\":\"Invalid JSON format\",\"path\":\"/api/v1/telemetry\"}"
+                            ),
+                            ExampleObject(
+                                name = "validationFailed",
+                                summary = "Request validation failed",
+                                value = "{\"error\":\"Validation Failed\",\"message\":\"Request validation failed\",\"path\":\"/api/v1/telemetry\",\"details\":[\"deviceId: Device ID cannot be blank\",\"timestamp: Timestamp cannot be null\"]}"
+                            )
+                        ]
+                    )
+                ]
+            ),
+            ApiResponse(
+                responseCode = "401",
+                description = "Unauthorized - invalid or missing API key",
+                content = [
+                    Content(
+                        mediaType = "application/json"
+                    )
+                ]
+            ),
+            ApiResponse(
+                responseCode = "500",
+                description = "Internal server error",
+                content = [
+                    Content(
+                        mediaType = "application/json"
+                    )
+                ]
+            )
+        ]
+    )
     @PostMapping("/telemetry", consumes = ["application/json"], produces = ["application/json"])
     @Timed(value = "telemetry_requests", description = "Time taken to process telemetry requests")
     fun receiveTelemetryData(
