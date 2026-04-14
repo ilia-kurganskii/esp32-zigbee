@@ -18,7 +18,7 @@ static uint8_t current_green = 0;
 static uint8_t current_blue = 0;
 static uint8_t current_level = 255;
 
-static led_strip_t *g_led_strip = NULL;
+// static led_strip_t *g_led_strip = NULL;  // Not used - GPIO control instead
 
 void light_driver_init(void)
 {

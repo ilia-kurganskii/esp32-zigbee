@@ -29,7 +29,7 @@ static void motion_detected_callback(void)
     ESP_LOGI(TAG, "Motion detected via callback");
 }
 
-static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
+void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
 {
     ESP_RETURN_ON_FALSE(esp_zb_bdb_start_top_level_commissioning(mode_mask) == ESP_OK, , TAG, "Failed to start Zigbee commissioning");
 }
@@ -62,8 +62,8 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             }
         }
         break;
-    case ESP_ZB_BDB_SIGNAL_NETWORK_FORMED:
-    case ESP_ZB_BDB_SIGNAL_NETWORK_JOINED:
+    case ESP_ZB_BDB_SIGNAL_FORMATION:
+    case ESP_ZB_BDB_SIGNAL_STEERING:
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Network formed/joined successfully");
         } else {
@@ -80,28 +80,22 @@ static esp_zb_cluster_list_t *custom_clusters_create(void)
 {
     esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
     
+    /* Add Basic Cluster (mandatory) */
+    esp_zb_attribute_list_t *basic_cluster = esp_zb_basic_cluster_create(NULL);
+    esp_zb_basic_cluster_add_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, ESP_MANUFACTURER_NAME);
+    esp_zb_basic_cluster_add_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, ESP_MODEL_IDENTIFIER);
+    esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    
+    /* Add Identify Cluster (mandatory) */
+    esp_zb_cluster_list_add_identify_cluster(cluster_list, esp_zb_identify_cluster_create(NULL), ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    
     /* Add Occupancy (Motion) Sensor Cluster */
-    esp_zb_attribute_list_t *occupancy_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING);
-    
-    /* Add occupancy attributes */
-    bool occupancy_value = motion_driver_get_state();
-    esp_zb_attribute_t *occupancy_attr = esp_zb_zcl_attr_create(ESP_ZB_ZCL_ATTR_OCCUPANCY_ID, ESP_ZB_ZCL_ATTR_TYPE_BOOL, ESP_ZB_ZCL_ATTR_READ_ONLY, &occupancy_value);
-    esp_zb_zcl_attr_list_add_attr(occupancy_cluster, occupancy_attr);
-    
-    uint8_t sensor_type = 0x06; // PIR sensor
-    esp_zb_attribute_t *sensor_type_attr = esp_zb_zcl_attr_create(ESP_ZB_ZCL_ATTR_OCCUPANCY_SENSOR_TYPE_ID, ESP_ZB_ZCL_ATTR_TYPE_U8, ESP_ZB_ZCL_ATTR_READ_ONLY, &sensor_type);
-    esp_zb_zcl_attr_list_add_attr(occupancy_cluster, sensor_type_attr);
-    
-    esp_zb_cluster_list_add_cluster(cluster_list, occupancy_cluster);
+    esp_zb_attribute_list_t *occupancy_cluster = esp_zb_occupancy_sensing_cluster_create(NULL);
+    esp_zb_cluster_list_add_occupancy_sensing_cluster(cluster_list, occupancy_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     
     /* Add On/Off Cluster for LED control */
-    esp_zb_attribute_list_t *onoff_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
-    
-    bool onoff_value = light_driver_get_power();
-    esp_zb_attribute_t *onoff_attr = esp_zb_zcl_attr_create(ESP_ZB_ZCL_ATTR_ON_OFF_ID, ESP_ZB_ZCL_ATTR_TYPE_BOOL, ESP_ZB_ZCL_ATTR_READ_WRITE, &onoff_value);
-    esp_zb_zcl_attr_list_add_attr(onoff_cluster, onoff_attr);
-    
-    esp_zb_cluster_list_add_cluster(cluster_list, onoff_cluster);
+    esp_zb_attribute_list_t *onoff_cluster = esp_zb_on_off_cluster_create(NULL);
+    esp_zb_cluster_list_add_on_off_cluster(cluster_list, onoff_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     
     return cluster_list;
 }
@@ -115,22 +109,20 @@ void esp_zb_motion_light_init(void)
     /* Initialize light driver */
     light_driver_init();
     
-    /* Create custom clusters */
+    /* Create endpoint list */
     esp_zb_ep_list_t *ep_list = esp_zb_ep_list_create();
     esp_zb_endpoint_config_t endpoint_config = {
         .endpoint = HA_ESP_MOTION_LIGHT_ENDPOINT,
         .app_profile_id = ESP_ZB_AF_HA_PROFILE_ID,
-        .app_device_id = ESP_ZB_HA_DEVICE_ID_OCCUPANCY_SENSOR,
+        .app_device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID,
         .app_device_version = 0
     };
     
-    esp_zb_endpoint_add(ep_list, &endpoint_config, custom_clusters_create());
+    /* Add endpoint with clusters */
+    esp_zb_ep_list_add_ep(ep_list, custom_clusters_create(), endpoint_config);
     
-    /* Set device info */
-    esp_zb_device_add(ep_list, NULL, NULL, NULL, NULL);
-    
-    /* Set signal handler */
-    esp_zb_core_signal_register(esp_zb_app_signal_handler);
+    /* Register device */
+    esp_zb_device_register(ep_list);
 }
 
 void esp_zb_motion_light_start_commissioning(void)
@@ -152,9 +144,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     
     /* Initialize Zigbee */
-    ESP_ERROR_CHECK(esp_zb_init(ESP_ZB_ZED_CONFIG()));
-    ESP_ERROR_CHECK(esp_zb_set_radio_config(ESP_ZB_DEFAULT_RADIO_CONFIG()));
-    ESP_ERROR_CHECK(esp_zb_set_host_config(ESP_ZB_DEFAULT_HOST_CONFIG()));
+    esp_zb_init(NULL);
     
     /* Initialize motion light */
     esp_zb_motion_light_init();
@@ -164,7 +154,6 @@ void app_main(void)
     
     /* Start Zigbee */
     ESP_ERROR_CHECK(esp_zb_start(false));
-    esp_zb_main_loop_iteration();
     
     ESP_LOGI(TAG, "Zigbee Motion Light started");
     
@@ -184,6 +173,6 @@ void app_main(void)
         }
         
         /* Process Zigbee events */
-        esp_zb_main_loop_iteration();
+        esp_zb_stack_main_loop_iteration();
     }
 }
