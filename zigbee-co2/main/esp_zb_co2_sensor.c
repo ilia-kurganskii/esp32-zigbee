@@ -46,8 +46,8 @@ static const char *TAG = "ZIGBEE_CO2_SENSOR";
 
 /* I2C Configuration */
 #define I2C_MASTER_NUM              I2C_NUM_0
-#define I2C_MASTER_SCL_IO           6       /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           7       /*!< GPIO number used for I2C master data  */
+#define I2C_MASTER_SCL_IO           23       /*!< GPIO number used for I2C master clock */
+#define I2C_MASTER_SDA_IO           22       /*!< GPIO number used for I2C master data  */
 #define I2C_MASTER_FREQ_HZ          40000   /*!< I2C master clock frequency */
 
 /* Retry Configuration */
