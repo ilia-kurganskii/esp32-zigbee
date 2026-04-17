@@ -9,6 +9,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Task Watchdog
+#
+CONFIG_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+# end of Task Watchdog
+
+#
 # mbedTLS
 #
 CONFIG_MBEDTLS_HARDWARE_AES=n

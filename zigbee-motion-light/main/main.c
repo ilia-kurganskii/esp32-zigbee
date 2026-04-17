@@ -13,6 +13,9 @@
  */
 
 #include "esp_log.h"
+#include "esp_sleep.h"
+#include "esp_task_wdt.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "light_driver.h"
@@ -22,18 +25,41 @@ static const char *TAG = "MOTION_LIGHT";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting AM312 motion detection test");
+    ESP_LOGI(TAG, "Starting AM312 motion detection with deep sleep");
+
+    /* Check wake-up reason */
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+        ESP_LOGI(TAG, "Woke up from deep sleep due to motion detection on GPIO %d", MOTION_SENSOR_GPIO);
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+        ESP_LOGI(TAG, "Woke up from timer");
+    } else {
+        ESP_LOGI(TAG, "Not a deep sleep wakeup (normal boot or other reason: %d)", wakeup_reason);
+    }
 
     /* Initialize motion driver */
     motion_driver_init();
 
-    ESP_LOGI(TAG, "Motion driver initialized - waiting for motion on GPIO %d", MOTION_SENSOR_GPIO);
+    ESP_LOGI(TAG, "Motion driver initialized on GPIO %d", MOTION_SENSOR_GPIO);
 
-    /* Motion detection loop */
-    while (1) {
-        if (motion_driver_was_motion_detected()) {
-            ESP_LOGI(TAG, "Motion detected!");
-        }
-        vTaskDelay(pdMS_TO_TICKS(100)); // Check every 100ms
+    /* Configure deep sleep wake-up from motion sensor */
+    motion_driver_configure_deep_sleep_wakeup();
+
+    /* Configure timer wakeup for 10 seconds */
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(10000000));
+
+    ESP_LOGI(TAG, "Entering deep sleep. Will wake on motion detection...");
+
+    /* Debug loop: run 20 iterations without deep sleep */
+    for (int i = 0; i < 20; i++) {
+        const char *wakeup_str = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? "GPIO" :
+                                 (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" :
+                                 (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";
+        ESP_LOGI(TAG, "Debug iteration %d - GPIO %d level: %d - Wakeup: %s", i, MOTION_SENSOR_GPIO, gpio_get_level(MOTION_SENSOR_GPIO), wakeup_str);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
+
+    /* Enter deep sleep */
+    esp_deep_sleep_start();
 }
