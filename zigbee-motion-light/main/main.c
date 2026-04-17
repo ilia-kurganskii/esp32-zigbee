@@ -51,8 +51,8 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Entering deep sleep. Will wake on motion detection...");
 
-    /* Debug loop: run 20 iterations without deep sleep */
-    for (int i = 0; i < 20; i++) {
+    /* Debug loop: run 10 iterations without deep sleep */
+    for (int i = 0; i < 10; i++) {
         const char *wakeup_str = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? "GPIO" :
                                  (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" :
                                  (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";

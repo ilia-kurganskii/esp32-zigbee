@@ -33,8 +33,8 @@ void motion_driver_init(void)
     gpio_config_t motion_io_conf = {
         .pin_bit_mask = (1ULL << MOTION_SENSOR_GPIO),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&motion_io_conf));
@@ -63,11 +63,8 @@ void motion_driver_configure_deep_sleep_wakeup(void)
 {
     ESP_LOGI(TAG, "Configuring GPIO %d for deep sleep wake-up", MOTION_SENSOR_GPIO);
 
-    /* Enable wake-up from GPIO */
-    ESP_ERROR_CHECK(esp_sleep_enable_gpio_wakeup());
-
-    /* Set the wake-up mask for the motion sensor GPIO */
-    ESP_ERROR_CHECK(gpio_wakeup_enable(MOTION_SENSOR_GPIO, GPIO_INTR_HIGH_LEVEL));
+    /* Enable deep sleep GPIO wakeup - wake on HIGH level (motion detected) */
+    ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MOTION_SENSOR_GPIO, ESP_GPIO_WAKEUP_GPIO_HIGH));
 
     ESP_LOGI(TAG, "Deep sleep wake-up configured on GPIO %d", MOTION_SENSOR_GPIO);
 }
