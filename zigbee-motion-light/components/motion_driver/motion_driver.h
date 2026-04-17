@@ -14,9 +14,19 @@ extern "C" {
 #endif
 
 /* Motion sensor configuration */
-#define MOTION_SENSOR_GPIO         4       // Motion sensor input pin
+#define MOTION_SENSOR_GPIO         17       // Motion sensor input pin
 #define MOTION_DETECTED_HIGH       true    // Motion detected when pin is HIGH
 #define MOTION_DETECTED_LOW        false   // Motion detected when pin is LOW
+
+/* AM312 PIR sensor specifications */
+#define AM312_VOLTAGE_MIN          2.7     // Minimum operating voltage (V)
+#define AM312_VOLTAGE_MAX          12.0    // Maximum operating voltage (V)
+#define AM312_CURRENT_IDLE          0.1     // Idle current consumption (mA)
+#define AM312_DELAY_TIME            2.0     // Output delay time (seconds)
+#define AM312_BLOCKING_TIME         2.0     // Blocking time after trigger (seconds)
+#define AM312_RANGE_MIN             3.0     // Minimum detection range (meters)
+#define AM312_RANGE_MAX             5.0     // Maximum detection range (meters)
+#define AM312_FOV                   100     // Field of view (degrees)
 
 /**
  * @brief Initialize motion sensor driver.

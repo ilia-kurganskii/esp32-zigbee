@@ -4,7 +4,7 @@ Motion sensor with LED controller - currently implemented as basic GPIO control.
 
 ## Features
 
-- **Motion Detection**: PIR motion sensor on GPIO 4 with interrupt-driven detection
+- **Motion Detection**: AM312 PIR motion sensor on GPIO 4 with interrupt-driven detection
 - **LED Control**: Simple LED on GPIO 5 (on/off control)
 - **Auto Control**: LED turns on for 10 seconds when motion detected
 - **Build Ready**: Successfully compiles with ESP-IDF
@@ -12,11 +12,28 @@ Motion sensor with LED controller - currently implemented as basic GPIO control.
 ## Hardware Connections
 
 ```
-Motion Sensor (PIR)    -> GPIO 4
-LED (simple)           -> GPIO 5
-Power                  -> 3.3V/5V
-Ground                 -> GND
+AM312 PIR Sensor:
+- VCC   -> 3.3V (or 2.7-12V)
+- GND   -> GND
+- OUT   -> GPIO 4
+
+LED:
+- Anode  -> GPIO 5
+- Cathode -> GND (with appropriate resistor)
 ```
+
+## AM312 PIR Sensor Specifications
+
+- **Operating Voltage**: 2.7V - 12V DC
+- **Idle Current**: <0.1mA (100µA)
+- **Output Delay**: 2 seconds
+- **Blocking Time**: 2 seconds
+- **Detection Range**: 3-5 meters
+- **Field of View**: 100° cone angle
+- **Trigger Mode**: Repeatable
+- **Operating Temperature**: -20°C to +60°C
+
+The AM312 is an ultra-miniature, low-power PIR sensor ideal for battery-powered applications. It provides a simple digital output (HIGH when motion detected, LOW when no motion).
 
 ## Build Instructions
 

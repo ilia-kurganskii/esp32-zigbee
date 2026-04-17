@@ -49,7 +49,7 @@ extern "C" {
 #define LIGHT_DEFAULT_OFF 0
 
 /* LED strip configuration */
-#define CONFIG_EXAMPLE_STRIP_LED_GPIO   21
+#define CONFIG_EXAMPLE_STRIP_LED_GPIO   21 //D3
 #define CONFIG_EXAMPLE_STRIP_LED_NUMBER 3
 
 /**
