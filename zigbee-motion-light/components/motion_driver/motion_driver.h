@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 /* Motion sensor configuration */
-#define MOTION_SENSOR_GPIO         17       // Motion sensor input pin
+#define MOTION_SENSOR_GPIO         20 //D9       // Motion sensor input pin
 #define MOTION_DETECTED_HIGH       true    // Motion detected when pin is HIGH
 #define MOTION_DETECTED_LOW        false   // Motion detected when pin is LOW
 
