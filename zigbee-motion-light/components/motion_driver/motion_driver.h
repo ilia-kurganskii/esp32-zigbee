@@ -51,6 +51,14 @@ bool motion_driver_was_motion_detected(void);
 typedef void (*motion_callback_t)(void);
 void motion_driver_set_callback(motion_callback_t callback);
 
+/**
+ * @brief Configure GPIO for deep sleep wake-up.
+ *
+ * This function configures the motion sensor GPIO as a wake-up source
+ * for deep sleep mode. The device will wake up when motion is detected.
+ */
+void motion_driver_configure_deep_sleep_wakeup(void);
+
 #ifdef __cplusplus
 }
 #endif

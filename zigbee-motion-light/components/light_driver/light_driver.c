@@ -1,92 +1,102 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
  *
- * SPDX-License-Identifier: CC0-1.0
+ * SPDX-License-Identifier: LicenseRef-Included
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form, except as embedded into a Espressif Systems
+ *    integrated circuit in a product or a software update for such product,
+ *    must reproduce the above copyright notice, this list of conditions and
+ *    the following disclaimer in the documentation and/or other materials
+ *    provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * 4. Any software provided in binary form under this license must not be reverse
+ *    engineered, decompiled, modified and/or disassembled.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "light_driver.h"
 #include "esp_log.h"
-#include "driver/gpio.h"
 #include "led_strip.h"
-#include "esp_timer.h"
+#include "light_driver.h"
 
 static const char *TAG = "LIGHT_DRIVER";
 
-static bool current_power_state = false;
-static uint8_t current_red = 0;
-static uint8_t current_green = 0;
-static uint8_t current_blue = 0;
-static uint8_t current_level = 255;
+static led_strip_handle_t s_led_strip;
+static uint8_t s_red = 255, s_green = 255, s_blue = 255;
+static float s_level = 1;
 
-// static led_strip_t *g_led_strip = NULL;  // Not used - GPIO control instead
-
-void light_driver_init(void)
-{
-    ESP_LOGI(TAG, "Initializing light driver");
-    
-    // Configure LED GPIO as output for basic GPIO control
-    gpio_config_t led_io_conf = {
-        .pin_bit_mask = (1ULL << LIGHT_GPIO),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&led_io_conf));
-    
-    // Set initial LED state to OFF
-    ESP_ERROR_CHECK(gpio_set_level(LIGHT_GPIO, LED_ON_LOW ? 1 : 0));
-    current_power_state = false;
-    
-    ESP_LOGI(TAG, "Light driver initialized - GPIO %d", LIGHT_GPIO);
-}
+// Forward declarations
+static void light_driver_refresh(void);
 
 void light_driver_set_power(bool power)
 {
-    current_power_state = power;
-    ESP_ERROR_CHECK(gpio_set_level(LIGHT_GPIO, power == LED_ON_HIGH ? 1 : 0));
-    ESP_LOGD(TAG, "Light power set to %s", power ? "ON" : "OFF");
-}
-
-bool light_driver_get_power(void)
-{
-    return current_power_state;
+    s_level = power;
+    ESP_LOGI(TAG, "Power set to %s", power ? "ON" : "OFF");
+    light_driver_refresh();
 }
 
 void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
 {
-    current_red = red;
-    current_green = green;
-    current_blue = blue;
-    
-    // For simple GPIO LED, use brightness based on RGB values
-    uint8_t brightness = (red + green + blue) / 3;
-    if (current_power_state && brightness > 0) {
-        ESP_ERROR_CHECK(gpio_set_level(LIGHT_GPIO, LED_ON_HIGH ? 1 : 0));
-    } else {
-        ESP_ERROR_CHECK(gpio_set_level(LIGHT_GPIO, LED_ON_LOW ? 1 : 0));
-    }
-    
-    ESP_LOGD(TAG, "Light RGB set to R:%d G:%d B:%d", red, green, blue);
+    s_red = red;
+    s_green = green;
+    s_blue = blue;
+    ESP_LOGI(TAG, "RGB set to (%u, %u, %u)", red, green, blue);
+    light_driver_refresh();
 }
 
 void light_driver_set_level(uint8_t level)
 {
-    current_level = level;
-    
-    // Apply level to current RGB values
-    uint8_t adjusted_red = (current_red * level) / 255;
-    uint8_t adjusted_green = (current_green * level) / 255;
-    uint8_t adjusted_blue = (current_blue * level) / 255;
-    
-    light_driver_set_rgb(adjusted_red, adjusted_green, adjusted_blue);
-    
-    ESP_LOGD(TAG, "Light level set to %d", level);
+    s_level = level / 255.0;
+    ESP_LOGI(TAG, "Level set to %u (%.2f)", level, s_level);
+    light_driver_refresh();
 }
 
-bool light_driver_toggle(void)
+static void light_driver_refresh(void)
 {
-    bool new_state = !current_power_state;
-    light_driver_set_power(new_state);
-    return new_state;
+    // Apply current RGB and level values to all pixels
+    for (int i = 0; i < CONFIG_EXAMPLE_STRIP_LED_NUMBER; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, i, 
+            (uint8_t)(s_red * s_level),
+            (uint8_t)(s_green * s_level), 
+            (uint8_t)(s_blue * s_level)));
+    }
+    ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
+}
+
+
+void light_driver_init()
+{
+    ESP_LOGI(TAG, "Initializing LED strip - GPIO: %d, LEDs: %d", CONFIG_EXAMPLE_STRIP_LED_GPIO, CONFIG_EXAMPLE_STRIP_LED_NUMBER);
+    
+    led_strip_config_t led_strip_conf = {
+        .max_leds = CONFIG_EXAMPLE_STRIP_LED_NUMBER,
+        .strip_gpio_num = CONFIG_EXAMPLE_STRIP_LED_GPIO,
+    };
+    led_strip_rmt_config_t rmt_conf = {
+        .resolution_hz = 10 * 1000 * 1000, // 10MHz
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&led_strip_conf, &rmt_conf, &s_led_strip));
+    light_driver_refresh();
+    
+    ESP_LOGI(TAG, "LED strip initialized successfully");
 }
