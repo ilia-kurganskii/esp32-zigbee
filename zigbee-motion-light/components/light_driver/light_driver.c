@@ -60,8 +60,14 @@ void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue)
     s_red = red;
     s_green = green;
     s_blue = blue;
-    ESP_LOGI(TAG, "RGB set to (%u, %u, %u)", red, green, blue);
     light_driver_refresh();
+}
+
+void light_driver_set_pixel(uint8_t index, uint8_t red, uint8_t green, uint8_t blue)
+{
+    if (index >= CONFIG_EXAMPLE_STRIP_LED_NUMBER) return;
+    ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, index, red, green, blue));
+    ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
 }
 
 void light_driver_set_level(uint8_t level)

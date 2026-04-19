@@ -77,6 +77,16 @@ void light_driver_set_rgb(uint8_t red, uint8_t green, uint8_t blue);
 
 
 /**
+ * @brief Set a single pixel color.
+ *
+ * @param index Pixel index (0-based)
+ * @param red   Red intensity (0-255)
+ * @param green Green intensity (0-255)
+ * @param blue  Blue intensity (0-255)
+ */
+void light_driver_set_pixel(uint8_t index, uint8_t red, uint8_t green, uint8_t blue);
+
+/**
  * @brief Set light level (0-255).  
  *
  * @param level Light level (0-255)

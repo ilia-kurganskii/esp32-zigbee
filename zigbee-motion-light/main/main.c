@@ -56,15 +56,34 @@ void app_main(void)
     /* Configure timer wakeup for 10 seconds */
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(10000000));
 
-    ESP_LOGI(TAG, "Entering deep sleep. Will wake on motion detection...");
+    const char *wakeup_str = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? "GPIO" :
+                             (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" :
+                             (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";
+    ESP_LOGI(TAG, "Wakeup: %s, GPIO %d level: %d", wakeup_str, MOTION_SENSOR_GPIO, gpio_get_level(MOTION_SENSOR_GPIO));
 
-    /* Debug loop: run 10 iterations without deep sleep */
-    for (int i = 0; i < 10; i++) {
-        const char *wakeup_str = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? "GPIO" :
-                                 (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" :
-                                 (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";
-        ESP_LOGI(TAG, "Debug iteration %d - GPIO %d level: %d - Wakeup: %s", i, MOTION_SENSOR_GPIO, gpio_get_level(MOTION_SENSOR_GPIO), wakeup_str);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    /* LED animation: bounce one LED at a time, 5 rounds */
+    uint8_t r = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 0 : 255;
+    uint8_t g = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 255 : 0;
+    uint8_t b = 0;
+    int num_leds = CONFIG_EXAMPLE_STRIP_LED_NUMBER;
+    int pattern_len = (num_leds > 1) ? (2 * num_leds - 2) : 1;
+
+    for (int round = 0; round < 20; round++) {
+        for (int p = 0; p < pattern_len; p++) {
+            int led = (p < num_leds) ? p : (2 * (num_leds - 1) - p);
+            light_driver_set_rgb(0, 0, 0);
+            light_driver_set_pixel(led, r, g, b);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+    }
+
+    /* Keep last LED active */
+    light_driver_set_rgb(0, 0, 0);
+    light_driver_set_pixel(0, r, g, b);
+
+    /* Wait 10 seconds before deep sleep only for non-GPIO wakeup */
+    if (wakeup_reason != ESP_SLEEP_WAKEUP_GPIO) {
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 
     /* Turn LED off before deep sleep */
