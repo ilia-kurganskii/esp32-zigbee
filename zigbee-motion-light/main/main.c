@@ -27,15 +27,22 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Starting AM312 motion detection with deep sleep");
 
+    /* Initialize LED */
+    light_driver_init();
+    light_driver_set_power(LIGHT_DEFAULT_ON);
+
     /* Check wake-up reason */
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
     if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         ESP_LOGI(TAG, "Woke up from deep sleep due to motion detection on GPIO %d", MOTION_SENSOR_GPIO);
+        light_driver_set_rgb(0, 255, 0);  // Green - motion detected
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
         ESP_LOGI(TAG, "Woke up from timer");
+        light_driver_set_rgb(255, 0, 0);  // Red - timer wakeup
     } else {
         ESP_LOGI(TAG, "Not a deep sleep wakeup (normal boot or other reason: %d)", wakeup_reason);
+        light_driver_set_rgb(255, 0, 0);  // Red - normal boot
     }
 
     /* Initialize motion driver */
@@ -59,6 +66,9 @@ void app_main(void)
         ESP_LOGI(TAG, "Debug iteration %d - GPIO %d level: %d - Wakeup: %s", i, MOTION_SENSOR_GPIO, gpio_get_level(MOTION_SENSOR_GPIO), wakeup_str);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
+
+    /* Turn LED off before deep sleep */
+    light_driver_set_power(LIGHT_DEFAULT_OFF);
 
     /* Enter deep sleep */
     esp_deep_sleep_start();
