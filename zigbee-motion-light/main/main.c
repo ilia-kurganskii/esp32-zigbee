@@ -234,20 +234,22 @@ static void led_motion_animation(esp_sleep_wakeup_cause_t wakeup_reason)
     uint8_t r = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 0 : 255;
     uint8_t g = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 255 : 0;
     uint8_t b = 0;
-    int num_leds = CONFIG_EXAMPLE_STRIP_LED_NUMBER;
-    int pattern_len = (num_leds > 1) ? (2 * num_leds - 2) : 1;
 
-    for (int round = 0; round < 20; round++) {
-        for (int p = 0; p < pattern_len; p++) {
-            int led = (p < num_leds) ? p : (2 * (num_leds - 1) - p);
-            light_driver_set_rgb(0, 0, 0);
+    /* Simple single-LED bounce pattern (3 rounds) */
+    for (int round = 0; round < 3; round++) {
+        for (int led = 0; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
             light_driver_set_pixel(led, r, g, b);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            vTaskDelay(50 / portTICK_PERIOD_MS);
+            light_driver_set_pixel(led, 0, 0, 0);
+        }
+        for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led > 0; led--) {
+            light_driver_set_pixel(led, r, g, b);
+            vTaskDelay(50 / portTICK_PERIOD_MS);
+            light_driver_set_pixel(led, 0, 0, 0);
         }
     }
 
-    /* Keep last LED active */
-    light_driver_set_rgb(0, 0, 0);
+    /* Keep LED 0 active */
     light_driver_set_pixel(0, r, g, b);
 }
 
@@ -277,7 +279,8 @@ void app_main(void)
 
     /* Initialize LED */
     light_driver_init();
-    light_driver_set_power(LIGHT_DEFAULT_ON);
+    light_driver_set_rgb(0, 0, 0);  /* Clear all LEDs */
+    light_driver_set_pixel(0, 255, 255, 255);  /* Set only LED 0 white */
 
     /* Initialize time schedule */
     ESP_ERROR_CHECK(time_schedule_init());
@@ -309,7 +312,7 @@ void app_main(void)
     if (need_time_sync) {
         /* ── Zigbee time sync mode ── */
         ESP_LOGI(TAG, "Starting Zigbee for time sync...");
-        light_driver_set_rgb(0, 0, 255); /* Blue = syncing time */
+        light_driver_set_pixel(0, 0, 0, 255); /* Blue = syncing time */
 
         s_zb_events = xEventGroupCreate();
 
@@ -328,12 +331,12 @@ void app_main(void)
 
         if (bits & ZB_TIME_SYNCED_BIT) {
             ESP_LOGI(TAG, "Time sync successful!");
-            light_driver_set_rgb(0, 255, 0); /* Green = success */
+            light_driver_set_pixel(0, 0, 255, 0); /* Green = success */
             s_last_sync_time_us = s_accumulated_sleep_us;
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         } else {
             ESP_LOGW(TAG, "Time sync failed or timed out, continuing with fail-open");
-            light_driver_set_rgb(255, 128, 0); /* Orange = sync failed */
+            light_driver_set_pixel(0, 255, 128, 0); /* Orange = sync failed */
             vTaskDelay(2000 / portTICK_PERIOD_MS);
         }
     }
@@ -342,12 +345,12 @@ void app_main(void)
     if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO && time_schedule_is_active()) {
         /* Motion detected during active hours -> LED animation */
         ESP_LOGI(TAG, "Motion detected during active schedule -> LED ON");
-        light_driver_set_rgb(0, 255, 0);
+        light_driver_set_pixel(0, 0, 255, 0);
         led_motion_animation(wakeup_reason);
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         /* Motion detected outside active hours -> skip LED */
         ESP_LOGI(TAG, "Motion detected outside schedule -> LED OFF");
-        light_driver_set_rgb(0, 0, 0);
+        light_driver_set_pixel(0, 0, 0, 0);
         vTaskDelay(100 / portTICK_PERIOD_MS);
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
         /* Timer wakeup - just log and go back to sleep */
@@ -355,7 +358,7 @@ void app_main(void)
     } else {
         /* First boot - show red briefly */
         ESP_LOGI(TAG, "First boot");
-        light_driver_set_rgb(255, 0, 0);
+        light_driver_set_pixel(0, 255, 0, 0);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
 

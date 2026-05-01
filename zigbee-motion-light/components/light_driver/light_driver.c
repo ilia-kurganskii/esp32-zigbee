@@ -42,7 +42,7 @@
 static const char *TAG = "LIGHT_DRIVER";
 
 static led_strip_handle_t s_led_strip;
-static uint8_t s_red = 255, s_green = 255, s_blue = 255;
+static uint8_t s_red = 0, s_green = 0, s_blue = 0;
 static float s_level = 1;
 
 // Forward declarations
