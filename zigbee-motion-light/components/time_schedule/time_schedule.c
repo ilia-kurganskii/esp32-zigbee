@@ -17,7 +17,8 @@ static const char *TAG = "TIME_SCHEDULE";
 
 /* RTC memory - persists through deep sleep, resets on power cycle */
 static RTC_DATA_ATTR bool s_time_synced = false;
-static RTC_DATA_ATTR int32_t s_tz_offset = TIME_SCHEDULE_DEFAULT_TZ_OFFSET;
+/* tz_offset stored in NVS for power cycle persistence */
+static int32_t s_tz_offset = TIME_SCHEDULE_DEFAULT_TZ_OFFSET;
 
 /* Schedule config (loaded from NVS on init) */
 static uint8_t s_start_hour = TIME_SCHEDULE_DEFAULT_START_HOUR;
@@ -40,6 +41,9 @@ esp_err_t time_schedule_init(void)
 
         int32_t tz;
         if (nvs_get_i32(handle, "tz_offset", &tz) == ESP_OK) s_tz_offset = tz;
+
+        uint8_t synced;
+        if (nvs_get_u8(handle, "synced", &synced) == ESP_OK) s_time_synced = (synced != 0);
 
         nvs_close(handle);
     } else if (err == ESP_ERR_NVS_NOT_FOUND) {
@@ -79,6 +83,15 @@ esp_err_t time_schedule_sync_time(uint32_t zigbee_utc_seconds)
     }
 
     s_time_synced = true;
+
+    /* Save sync status to NVS for power cycle persistence */
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, "synced", 1);
+        nvs_set_i32(nvs_handle, "tz_offset", s_tz_offset);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
 
     /* Log the synced time in local time */
     time_t local_time = unix_time + s_tz_offset;
