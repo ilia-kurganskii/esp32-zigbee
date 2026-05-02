@@ -3,3 +3,4 @@ build
 .vscode
 managed_components
 .cache
+.compound-engineering/*.local.yaml

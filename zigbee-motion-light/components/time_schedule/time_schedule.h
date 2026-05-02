@@ -14,10 +14,10 @@
 extern "C" {
 #endif
 
-/* Default schedule: 22:00 - 06:00 (night hours) */
+/* Default schedule: 22:00 - 08:00 (night hours) */
 #define TIME_SCHEDULE_DEFAULT_START_HOUR    22
 #define TIME_SCHEDULE_DEFAULT_START_MIN     0
-#define TIME_SCHEDULE_DEFAULT_END_HOUR      6
+#define TIME_SCHEDULE_DEFAULT_END_HOUR      8
 #define TIME_SCHEDULE_DEFAULT_END_MIN       0
 
 /* Timezone offset in seconds from UTC.

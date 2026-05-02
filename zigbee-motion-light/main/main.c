@@ -16,6 +16,7 @@
 #include "esp_sleep.h"
 #include "esp_check.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -51,6 +52,11 @@ static const char *TAG = "MOTION_LIGHT";
 static RTC_DATA_ATTR int64_t s_accumulated_sleep_us = 0;
 static RTC_DATA_ATTR int64_t s_last_sync_time_us = 0;
 
+/* Motion tracking */
+static int64_t s_last_motion_time_us = 0;
+static bool s_last_occupancy_state = false;
+static esp_zb_attribute_list_t *s_occupancy_cluster = NULL;
+
 /* Event group for Zigbee time sync coordination */
 static EventGroupHandle_t s_zb_events;
 #define ZB_TIME_SYNCED_BIT  BIT0
@@ -58,6 +64,15 @@ static EventGroupHandle_t s_zb_events;
 #define ZB_SYNC_FAILED_BIT  BIT2
 
 /* ───────────────────── Zigbee Callbacks ───────────────────── */
+
+static void send_occupancy_report(bool occupied)
+{
+    uint8_t occupancy_value = occupied ? 1 : 0;
+    esp_zb_zcl_set_attribute_val(MOTION_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING, 
+                                  ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, ESP_ZB_ZCL_ATTR_OCCUPANCY_SENSING_OCCUPANCY_ID, 
+                                  &occupancy_value, false);
+    ESP_LOGI(TAG, "Updated occupancy attribute: %s", occupied ? "OCCUPIED" : "UNOCCUPIED");
+}
 
 static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
 {
@@ -209,6 +224,13 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_attribute_list_t *time_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_TIME);
     esp_zb_cluster_list_add_time_cluster(cluster_list, time_cluster, ESP_ZB_ZCL_CLUSTER_CLIENT_ROLE);
 
+    /* Occupancy Sensing cluster (server role) - to report motion state */
+    esp_zb_occupancy_sensing_cluster_cfg_t occupancy_cfg = {
+        .occupancy = 0,
+    };
+    s_occupancy_cluster = esp_zb_occupancy_sensing_cluster_create(&occupancy_cfg);
+    esp_zb_cluster_list_add_occupancy_sensing_cluster(cluster_list, s_occupancy_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+
     /* Create endpoint */
     esp_zb_ep_list_t *ep_list = esp_zb_ep_list_create();
     esp_zb_endpoint_config_t ep_cfg = {
@@ -229,28 +251,43 @@ static void esp_zb_task(void *pvParameters)
 
 /* ───────────────────── LED Animation ───────────────────── */
 
-static void led_motion_animation(esp_sleep_wakeup_cause_t wakeup_reason)
+static void led_active_animation(void)
 {
-    uint8_t r = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 255 : 255;
-    uint8_t g = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 180 : 0;
-    uint8_t b = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? 0 : 0;
+    uint8_t r = 255;
+    uint8_t g = 180;
+    uint8_t b = 0;
 
-    /* Simple single-LED bounce pattern (3 rounds) */
-    for (int round = 0; round < 3; round++) {
-        for (int led = 0; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
-            light_driver_set_pixel(led, r, g, b);
-            vTaskDelay(50 / portTICK_PERIOD_MS);
-            light_driver_set_pixel(led, 0, 0, 0);
-        }
-        for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led > 0; led--) {
-            light_driver_set_pixel(led, r, g, b);
-            vTaskDelay(50 / portTICK_PERIOD_MS);
-            light_driver_set_pixel(led, 0, 0, 0);
-        }
+    /* Simple single-LED bounce pattern (1 round) */
+    for (int led = 0; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
+        light_driver_set_pixel(led, r, g, b);
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+        light_driver_set_pixel(led, 0, 0, 0);
+    }
+    for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led > 0; led--) {
+        light_driver_set_pixel(led, r, g, b);
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+        light_driver_set_pixel(led, 0, 0, 0);
     }
 
     /* Keep LED 0 active */
     light_driver_set_pixel(0, r, g, b);
+}
+
+static void led_phase_out_animation(void)
+{
+    uint8_t r = 255;
+    uint8_t g = 180;
+    uint8_t b = 0;
+
+    /* Fade out pattern with slower timing (100ms per step) */
+    for (int led = 0; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
+        light_driver_set_pixel(led, r, g, b);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        light_driver_set_pixel(led, 0, 0, 0);
+    }
+
+    /* Turn off all LEDs */
+    light_driver_set_rgb(0, 0, 0);
 }
 
 /* ───────────────────── Deep Sleep ───────────────────── */
@@ -296,7 +333,7 @@ void app_main(void)
     /* Initialize motion driver */
     motion_driver_init();
 
-    /* Check if we need Zigbee time sync (non-blocking) */
+    /* Check if we need Zigbee time sync */
     bool need_time_sync = !time_schedule_is_time_synced();
 
     /* Also re-sync periodically */
@@ -309,10 +346,10 @@ void app_main(void)
         }
     }
 
-    /* ── Start background Zigbee sync if needed (non-blocking) ── */
-    if (need_time_sync) {
-        ESP_LOGI(TAG, "Starting background Zigbee time sync...");
-        light_driver_set_pixel(0, 0, 0, 255); /* Blue = syncing time */
+    /* ── Start Zigbee if needed ── */
+    if (need_time_sync || wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+        ESP_LOGI(TAG, "Starting Zigbee...");
+        light_driver_set_pixel(0, 0, 0, 255); /* Blue = initializing */
         vTaskDelay(200 / portTICK_PERIOD_MS); /* Brief blue flash */
 
         s_zb_events = xEventGroupCreate();
@@ -324,29 +361,85 @@ void app_main(void)
         ESP_ERROR_CHECK(esp_zb_platform_config(&config));
         xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
 
-        /* Don't wait - let it run in background */
-        ESP_LOGI(TAG, "Zigbee sync running in background");
+        ESP_LOGI(TAG, "Zigbee started");
     }
 
-    /* ── Check time schedule and run animation immediately ── */
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO && time_schedule_is_active()) {
-        /* Motion detected during active hours -> LED animation immediately */
-        ESP_LOGI(TAG, "Motion detected during active schedule -> LED ON");
-        light_driver_set_pixel(0, 255, 180, 0);  /* Warm amber */
-        led_motion_animation(wakeup_reason);
-    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
-        /* Motion detected outside active hours -> skip LED */
-        ESP_LOGI(TAG, "Motion detected outside schedule -> LED OFF");
-        light_driver_set_pixel(0, 0, 0, 0);
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+    /* ── Check if animation should run ── */
+    bool should_animate = false;
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+        if (!time_schedule_is_time_synced() || time_schedule_is_active()) {
+            should_animate = true;
+            ESP_LOGI(TAG, "Motion detected -> animation will run");
+        } else {
+            ESP_LOGI(TAG, "Motion detected outside schedule -> no animation");
+        }
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-        /* Timer wakeup - just log and go back to sleep */
-        ESP_LOGI(TAG, "Timer wakeup, going back to sleep");
+        ESP_LOGI(TAG, "Timer wakeup, no animation");
     } else {
         /* First boot - show red briefly */
         ESP_LOGI(TAG, "First boot");
         light_driver_set_pixel(0, 255, 0, 0);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+
+    /* ── Animation loop ── */
+    if (should_animate) {
+        /* Send initial occupancy report if motion detected */
+        bool motion_detected = motion_driver_get_state();
+        if (motion_detected && s_last_occupancy_state != true) {
+            send_occupancy_report(true);
+            s_last_occupancy_state = true;
+        }
+
+        /* Animation loop: run animation, check motion at end, loop if still motion */
+        do {
+            led_active_animation();
+
+            /* Check motion at end of animation */
+            motion_detected = motion_driver_get_state();
+            if (motion_detected) {
+                s_last_motion_time_us = esp_timer_get_time();
+                ESP_LOGI(TAG, "Motion still detected, looping animation");
+                /* Motion still detected, loop again */
+            } else {
+                /* No motion, send false and phase out */
+                ESP_LOGI(TAG, "No motion detected, starting phase out");
+                if (s_last_occupancy_state != false) {
+                    send_occupancy_report(false);
+                    s_last_occupancy_state = false;
+                }
+                led_phase_out_animation();
+                break;
+            }
+        } while (motion_detected);
+    }
+
+    /* ── Wait for Zigbee sync (30 seconds from last motion) ── */
+    if (need_time_sync) {
+        int64_t time_since_motion = s_last_motion_time_us > 0 ? 
+                                     (esp_timer_get_time() - s_last_motion_time_us) : 0;
+        int64_t remaining_wait = 30000000 - time_since_motion; /* 30 seconds */
+
+        if (remaining_wait > 0) {
+            ESP_LOGI(TAG, "Waiting up to %lld ms for Zigbee sync", remaining_wait / 1000);
+
+            /* Wait for sync or timeout */
+            EventBits_t bits = xEventGroupWaitBits(s_zb_events,
+                                                     ZB_TIME_SYNCED_BIT | ZB_SYNC_FAILED_BIT,
+                                                     pdFALSE,
+                                                     pdFALSE,
+                                                     remaining_wait / portTICK_PERIOD_MS);
+
+            if (bits & ZB_TIME_SYNCED_BIT) {
+                ESP_LOGI(TAG, "Zigbee time sync completed successfully");
+                s_last_sync_time_us = esp_timer_get_time();
+                s_accumulated_sleep_us = 0;
+            } else if (bits & ZB_SYNC_FAILED_BIT) {
+                ESP_LOGW(TAG, "Zigbee sync failed");
+            } else {
+                ESP_LOGW(TAG, "Zigbee sync timeout");
+            }
+        }
     }
 
     ESP_LOGI(TAG, "Wakeup: %s, synced: %d", wakeup_str, time_schedule_is_time_synced());
