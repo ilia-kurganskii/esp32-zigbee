@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "seeds-studio") (type "KiCad") (uri "${KIPRJMOD}../../../../kicad/seeed_studio/sym") (options "") (descr ""))
+)
