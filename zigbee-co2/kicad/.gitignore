@@ -1,0 +1,7 @@
+# KiCAD backup files
+*-backups/
+*.kicad_pcb-bak
+*.kicad_sch-bak
+
+# KiCAD history
+.history/
