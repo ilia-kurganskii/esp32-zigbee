@@ -18,6 +18,7 @@
 #include "ha/esp_zigbee_ha_standard.h"
 #include "zigbee_motion.h"
 #include "time_schedule.h"
+#include "link_status_led.h"
 
 static const char *TAG = "ZIGBEE_MOTION";
 
@@ -46,6 +47,59 @@ static esp_zb_attribute_list_t *s_occupancy_cluster = NULL;
 
 /* Occupancy state tracking */
 static bool s_last_occupancy_state = false;
+
+static bool s_joined;
+static bool s_pending_valid;
+static bool s_pending_occupied;
+
+static esp_err_t send_occupancy_to_network(bool occupied);
+static void flush_pending_occupancy(void);
+
+static void zigbee_motion_mark_joined(void)
+{
+    if (!s_zb_events) {
+        return;
+    }
+    xEventGroupSetBits(s_zb_events, ZB_CONNECTED_BIT);
+    s_joined = true;
+    link_status_led_set_joined();
+    flush_pending_occupancy();
+}
+
+static void flush_pending_occupancy(void)
+{
+    if (!s_joined || !s_pending_valid) {
+        return;
+    }
+    s_pending_valid = false;
+    esp_err_t r = send_occupancy_to_network(s_pending_occupied);
+    if (r != ESP_OK) {
+        ESP_LOGW(TAG, "flush pending occupancy failed");
+    }
+}
+
+static esp_err_t send_occupancy_to_network(bool occupied)
+{
+    if (s_last_occupancy_state == occupied) {
+        return ESP_OK;
+    }
+
+    link_status_led_notify_occupancy_issued();
+
+    uint8_t occupancy_value = occupied ? 1 : 0;
+    esp_zb_lock_acquire(portMAX_DELAY);
+    esp_zb_zcl_set_attribute_val(MOTION_LIGHT_ENDPOINT,
+                                 ESP_ZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING,
+                                 ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                 ESP_ZB_ZCL_ATTR_OCCUPANCY_SENSING_OCCUPANCY_ID,
+                                 &occupancy_value, false);
+    esp_zb_lock_release();
+
+    s_last_occupancy_state = occupied;
+    ESP_LOGI(TAG, "Updated occupancy attribute: %s", occupied ? "OCCUPIED" : "UNOCCUPIED");
+
+    return ESP_OK;
+}
 
 /* ───────────────────── Zigbee Callbacks ───────────────────── */
 
@@ -97,10 +151,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network steering");
+                link_status_led_set_steering();
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             } else {
                 ESP_LOGI(TAG, "Device rebooted, requesting time");
-                xEventGroupSetBits(s_zb_events, ZB_CONNECTED_BIT);
+                zigbee_motion_mark_joined();
                 request_time_from_coordinator();
             }
         } else {
@@ -117,10 +172,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             ESP_LOGI(TAG, "Joined network (PAN: 0x%04hx, Ch:%d, Addr: 0x%04hx)",
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(),
                      esp_zb_get_short_address());
-            xEventGroupSetBits(s_zb_events, ZB_CONNECTED_BIT);
+            zigbee_motion_mark_joined();
             request_time_from_coordinator();
         } else {
             ESP_LOGW(TAG, "Network steering failed: %s", esp_err_to_name(err_status));
+            link_status_led_set_steering();
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
                                    ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         }
@@ -148,6 +204,7 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
 
                     if (time_schedule_sync_time(zigbee_time) == ESP_OK) {
                         xEventGroupSetBits(s_zb_events, ZB_TIME_SYNCED_BIT);
+                        link_status_led_set_time_synced_from_coordinator();
                     } else {
                         xEventGroupSetBits(s_zb_events, ZB_SYNC_FAILED_BIT);
                     }
@@ -230,6 +287,11 @@ esp_err_t zigbee_motion_init(void)
 {
     ESP_LOGI(TAG, "Initializing Zigbee motion light component");
 
+    s_joined = false;
+    s_pending_valid = false;
+    s_pending_occupied = false;
+    s_last_occupancy_state = false;
+
     /* Create event group */
     s_zb_events = xEventGroupCreate();
     if (!s_zb_events) {
@@ -257,30 +319,39 @@ esp_err_t zigbee_motion_init(void)
 
 esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
 {
-    /* Only send report on state change */
-    if (s_last_occupancy_state == occupied) {
-        return ESP_OK; /* No change, skip report */
+    if (!s_zb_events) {
+        return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t occupancy_value = occupied ? 1 : 0;
-    esp_zb_zcl_set_attribute_val(MOTION_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING, 
-                                  ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, ESP_ZB_ZCL_ATTR_OCCUPANCY_SENSING_OCCUPANCY_ID, 
-                                  &occupancy_value, false);
-    
-    s_last_occupancy_state = occupied;
-    ESP_LOGI(TAG, "Updated occupancy attribute: %s", occupied ? "OCCUPIED" : "UNOCCUPIED");
-    
-    return ESP_OK;
+    if (!s_joined) {
+        s_pending_occupied = occupied;
+        s_pending_valid = true;
+        ESP_LOGD(TAG, "Occupancy queued (not joined yet): %s", occupied ? "OCCUPIED" : "UNOCCUPIED");
+        return ESP_OK;
+    }
+
+    return send_occupancy_to_network(occupied);
+}
+
+bool zigbee_motion_is_joined(void)
+{
+    return s_joined;
 }
 
 bool zigbee_motion_is_time_synced(void)
 {
+    if (!s_zb_events) {
+        return false;
+    }
     EventBits_t bits = xEventGroupGetBits(s_zb_events);
     return (bits & ZB_TIME_SYNCED_BIT) != 0;
 }
 
 bool zigbee_motion_is_sync_failed(void)
 {
+    if (!s_zb_events) {
+        return false;
+    }
     EventBits_t bits = xEventGroupGetBits(s_zb_events);
     return (bits & ZB_SYNC_FAILED_BIT) != 0;
 }

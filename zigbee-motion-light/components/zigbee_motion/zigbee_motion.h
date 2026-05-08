@@ -30,8 +30,8 @@ esp_err_t zigbee_motion_init(void);
 /**
  * @brief Send occupancy report to Zigbee network.
  *
- * Reports the current occupancy state (motion detected or not) via the
- * Occupancy Sensing cluster. Only sends report on state change.
+ * When joined, updates the Occupancy Sensing cluster on state change only.
+ * When not yet joined, stores the latest requested state and flushes after join.
  *
  * @param occupied true if motion detected, false otherwise
  * @return ESP_OK on success, error code otherwise
@@ -44,6 +44,11 @@ esp_err_t zigbee_motion_send_occupancy_report(bool occupied);
  * @return true if time has been synced, false otherwise
  */
 bool zigbee_motion_is_time_synced(void);
+
+/**
+ * @brief True after join (steering success or reboot on network).
+ */
+bool zigbee_motion_is_joined(void);
 
 /**
  * @brief Check if Zigbee sync has failed.
