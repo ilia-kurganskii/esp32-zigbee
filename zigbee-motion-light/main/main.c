@@ -30,20 +30,22 @@ static const char *TAG = "MOTION_LIGHT";
 /* Motion-strip animation uses LEDs 1..N-1; LED 0 is reserved for Zigbee status. */
 #define STRIP_LED_FIRST_INDEX        1
 
-/* Time sync re-sync interval: every 6 hours of deep sleep wakeups */
+/* Deep sleep periodic timer (occupancy heartbeat + drift toward periodic time resync). */
+#define DEEP_SLEEP_TIMER_INTERVAL_SEC   (3 * 60)
+
+/* Time sync re-sync interval after accumulated sleep duration (µs tally on timer wakes). */
 #define TIME_RESYNC_INTERVAL_SEC     (6 * 3600)
 
 #define GPIO_WAKE_NEED_ZB_MARGIN_US  (5000000LL)
-#define TIMER_WAKE_ZB_MARGIN_US      (2000000LL)
+#define TIMER_WAKE_ZB_MARGIN_US      (1500000LL)
 
 /* Absolute supervisor cap when occupancy intent pending (µs). */
 #define ZB_HARD_CAP_EXTRA_PENDING_US   (60 * 1000000LL)
 
 #define WAKE_EG_ANIM_DONE_BIT          BIT0
 
-/* RTC memory - track total sleep time for periodic resync */
+/* RTC memory — cumulative deep-sleep timer duration since last Zigbee coordinator time apply */
 static RTC_DATA_ATTR int64_t s_accumulated_sleep_us = 0;
-static RTC_DATA_ATTR int64_t s_last_sync_time_us = 0;
 
 /* Motion tracking */
 static int64_t s_last_motion_time_us = 0;
@@ -127,7 +129,7 @@ static void enter_deep_sleep(void)
     light_driver_set_power(LIGHT_DEFAULT_OFF);
 
     motion_driver_configure_deep_sleep_wakeup();
-    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(10000000)); /* 10s timer */
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIMER_INTERVAL_SEC * 1000000ULL));
 
     ESP_LOGI(TAG, "Entering deep sleep...");
     esp_deep_sleep_start();
@@ -159,24 +161,33 @@ void app_main(void)
     bool need_time_sync = !time_schedule_is_time_synced();
 
     if (!need_time_sync) {
-        s_accumulated_sleep_us += 10000000; /* approximate: 10s per timer wakeup */
-        int64_t since_last_sync = s_accumulated_sleep_us - s_last_sync_time_us;
-        if (since_last_sync > (int64_t)TIME_RESYNC_INTERVAL_SEC * 1000000LL) {
+        if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+            s_accumulated_sleep_us += (int64_t)DEEP_SLEEP_TIMER_INTERVAL_SEC * 1000000LL;
+        }
+        if (s_accumulated_sleep_us > (int64_t)TIME_RESYNC_INTERVAL_SEC * 1000000LL) {
             ESP_LOGI(TAG, "Periodic time re-sync needed");
             need_time_sync = true;
         }
     }
 
+    zigbee_motion_set_coordinator_time_read_enabled(need_time_sync);
     ESP_ERROR_CHECK(zigbee_motion_init());
 
     const int64_t wakeup_start_us = esp_timer_get_time();
     const int64_t loop_start_us = wakeup_start_us;
 
     const bool gpio_wake = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO);
+    const bool timer_wake = (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER);
+    const bool poll_motion_edges = gpio_wake || timer_wake;
+
     bool motion_prev = false;
     if (gpio_wake) {
         motion_prev = motion_driver_get_state();
         zigbee_motion_send_occupancy_report(motion_prev);
+    } else if (timer_wake) {
+        motion_prev = motion_driver_get_state();
+        ESP_ERROR_CHECK(zigbee_motion_publish_occupancy_refresh(motion_prev));
+        ESP_LOGI(TAG, "Timer wakeup: occupancy refresh published");
     }
 
     bool should_animate = false;
@@ -240,7 +251,6 @@ void app_main(void)
             if (need_time_sync) {
                 if (zigbee_motion_is_time_synced()) {
                     ESP_LOGI(TAG, "Zigbee time sync completed successfully");
-                    s_last_sync_time_us = esp_timer_get_time();
                     s_accumulated_sleep_us = 0;
                     exit_baseline = true;
                 } else if (zigbee_motion_is_sync_failed()) {
@@ -282,7 +292,7 @@ void app_main(void)
             break;
         }
 
-        if (gpio_wake) {
+        if (poll_motion_edges) {
             bool m = motion_driver_get_state();
             if (m != motion_prev) {
                 motion_prev = m;

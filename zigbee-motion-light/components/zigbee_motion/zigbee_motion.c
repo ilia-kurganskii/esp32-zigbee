@@ -52,8 +52,15 @@ static bool s_joined;
 static bool s_pending_valid;
 static bool s_pending_occupied;
 
-static esp_err_t send_occupancy_to_network(bool occupied);
+static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe);
 static void flush_pending_occupancy(void);
+
+static bool s_request_coordinator_time = true;
+
+void zigbee_motion_set_coordinator_time_read_enabled(bool enabled)
+{
+    s_request_coordinator_time = enabled;
+}
 
 static void zigbee_motion_mark_joined(void)
 {
@@ -72,7 +79,7 @@ static void flush_pending_occupancy(void)
         return;
     }
     bool occ = s_pending_occupied;
-    esp_err_t r = send_occupancy_to_network(occ);
+    esp_err_t r = send_occupancy_to_network(occ, true);
     if (r == ESP_OK) {
         s_pending_valid = false;
         return;
@@ -80,9 +87,9 @@ static void flush_pending_occupancy(void)
     ESP_LOGW(TAG, "flush pending occupancy failed, keeping intent for retry");
 }
 
-static esp_err_t send_occupancy_to_network(bool occupied)
+static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe)
 {
-    if (s_last_occupancy_state == occupied) {
+    if (dedupe && s_last_occupancy_state == occupied) {
         return ESP_OK;
     }
 
@@ -156,9 +163,13 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 link_status_led_set_steering();
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             } else {
-                ESP_LOGI(TAG, "Device rebooted, requesting time");
                 zigbee_motion_mark_joined();
-                request_time_from_coordinator();
+                if (s_request_coordinator_time) {
+                    ESP_LOGI(TAG, "Device rebooted, requesting coordinator time");
+                    request_time_from_coordinator();
+                } else {
+                    ESP_LOGI(TAG, "Device rebooted, skipping coordinator time read (already synced)");
+                }
             }
         } else {
             ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)",
@@ -175,7 +186,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(),
                      esp_zb_get_short_address());
             zigbee_motion_mark_joined();
-            request_time_from_coordinator();
+            if (s_request_coordinator_time) {
+                request_time_from_coordinator();
+            } else {
+                ESP_LOGI(TAG, "Joined network; skipping coordinator time read (already synced)");
+            }
         } else {
             ESP_LOGW(TAG, "Network steering failed: %s", esp_err_to_name(err_status));
             link_status_led_set_steering();
@@ -332,7 +347,23 @@ esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
         return ESP_OK;
     }
 
-    return send_occupancy_to_network(occupied);
+    return send_occupancy_to_network(occupied, true);
+}
+
+esp_err_t zigbee_motion_publish_occupancy_refresh(bool occupied)
+{
+    if (!s_zb_events) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!s_joined) {
+        s_pending_occupied = occupied;
+        s_pending_valid = true;
+        ESP_LOGD(TAG, "Occupancy refresh queued (not joined yet): %s", occupied ? "OCCUPIED" : "UNOCCUPIED");
+        return ESP_OK;
+    }
+
+    return send_occupancy_to_network(occupied, false);
 }
 
 bool zigbee_motion_is_joined(void)
