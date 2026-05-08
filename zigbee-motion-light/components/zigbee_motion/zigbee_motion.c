@@ -13,7 +13,6 @@
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/event_groups.h"
 #include "esp_zigbee_core.h"
 #include "ha/esp_zigbee_ha_standard.h"
 #include "zigbee_motion.h"
@@ -35,10 +34,6 @@ static const char *TAG = "ZIGBEE_MOTION";
 #define ESP_MANUFACTURER_NAME   "\x09""ESPRESSIF"
 #define ESP_MODEL_IDENTIFIER    "\x0D""Motion-Light"
 
-/* Event group for Zigbee coordination */
-static EventGroupHandle_t s_zb_events;
-#define ZB_CONNECTED_BIT    BIT0
-
 /* Occupancy cluster reference */
 static esp_zb_attribute_list_t *s_occupancy_cluster = NULL;
 
@@ -55,10 +50,6 @@ static void flush_pending_occupancy(void);
 
 static void zigbee_motion_mark_joined(void)
 {
-    if (!s_zb_events) {
-        return;
-    }
-    xEventGroupSetBits(s_zb_events, ZB_CONNECTED_BIT);
     s_joined = true;
     link_status_led_set_joined();
     flush_pending_occupancy();
@@ -240,13 +231,6 @@ esp_err_t zigbee_motion_init(void)
     s_pending_occupied = false;
     s_last_occupancy_state = false;
 
-    /* Create event group */
-    s_zb_events = xEventGroupCreate();
-    if (!s_zb_events) {
-        ESP_LOGE(TAG, "Failed to create event group");
-        return ESP_ERR_NO_MEM;
-    }
-
     /* Configure Zigbee platform */
     esp_zb_platform_config_t config = {
         .radio_config = {.radio_mode = ZB_RADIO_MODE_NATIVE},
@@ -262,14 +246,11 @@ esp_err_t zigbee_motion_init(void)
     }
 
     ESP_LOGI(TAG, "Zigbee motion light component initialized");
-    return ESP_OK;
+    return ret;
 }
 
 esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
 {
-    if (!s_zb_events) {
-        return ESP_ERR_INVALID_STATE;
-    }
 
     if (!s_joined) {
         s_pending_occupied = occupied;
@@ -283,9 +264,6 @@ esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
 
 esp_err_t zigbee_motion_publish_occupancy_refresh(bool occupied)
 {
-    if (!s_zb_events) {
-        return ESP_ERR_INVALID_STATE;
-    }
 
     if (!s_joined) {
         s_pending_occupied = occupied;
