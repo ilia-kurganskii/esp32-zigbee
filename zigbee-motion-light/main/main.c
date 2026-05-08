@@ -14,7 +14,8 @@
 
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_check.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "light_driver.h"
