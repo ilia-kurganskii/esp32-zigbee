@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,9 +24,9 @@ extern "C" {
  * This function initializes the Zigbee stack, creates the necessary clusters
  * (Basic, Identify, On/Off, Occupancy Sensing), and starts the Zigbee task.
  *
- * @return ESP_OK on success, error code otherwise
+ * @return Task handle on success, NULL on failure
  */
-esp_err_t zigbee_motion_init(void);
+TaskHandle_t zigbee_motion_init(void);
 
 
 /**
@@ -56,6 +57,13 @@ bool zigbee_motion_is_joined(void);
  * @brief True while a requested occupancy value is still pending (queued before join, or must retry after a failed apply).
  */
 bool zigbee_motion_occupancy_intent_pending(void);
+
+/**
+ * @brief Check if Zigbee task has finished.
+ *
+ * @return true if Zigbee task is finished, false otherwise
+ */
+bool zigbee_motion_is_finished(void);
 
 #ifdef __cplusplus
 }

@@ -17,6 +17,7 @@
 #include "ha/esp_zigbee_ha_standard.h"
 #include "zigbee_motion.h"
 #include "link_status_led.h"
+#include "motion_driver.h"
 
 static const char *TAG = "ZIGBEE_MOTION";
 
@@ -43,9 +44,14 @@ static bool s_last_occupancy_state = false;
 static bool s_joined;
 static bool s_pending_valid;
 static bool s_pending_occupied;
+static bool s_zigbee_finished = false;
+static TaskHandle_t s_zigbee_task_handle = NULL;
+static TaskHandle_t s_monitor_task_handle = NULL;
+static bool s_motion_prev = false;
 
 static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe);
 static void flush_pending_occupancy(void);
+static void monitor_task(void *pvParameters);
 
 
 static void zigbee_motion_mark_joined(void)
@@ -53,6 +59,14 @@ static void zigbee_motion_mark_joined(void)
     s_joined = true;
     link_status_led_set_joined();
     flush_pending_occupancy();
+
+    /* Create monitor task after joining */
+    BaseType_t ret = xTaskCreate(monitor_task, "zb_monitor", 4096, NULL, 4, &s_monitor_task_handle);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create monitor task");
+    } else {
+        ESP_LOGI(TAG, "Monitor task created after joining");
+    }
 }
 
 static void flush_pending_occupancy(void)
@@ -67,6 +81,48 @@ static void flush_pending_occupancy(void)
         return;
     }
     ESP_LOGW(TAG, "flush pending occupancy failed, keeping intent for retry");
+}
+
+static void monitor_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    ESP_LOGI(TAG, "Monitor task started");
+
+    s_motion_prev = motion_driver_get_state();
+    ESP_LOGI(TAG, "Initial motion state: %s", s_motion_prev ? "DETECTED" : "CLEARED");
+
+    /* If motion is already false, send report and finish immediately */
+    if (!s_motion_prev) {
+        ESP_LOGI(TAG, "Motion already cleared, sending report and finishing");
+        send_occupancy_to_network(false, true);
+        s_zigbee_finished = true;
+        ESP_LOGI(TAG, "Monitor task finished (motion never detected)");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    for (;;) {
+        bool motion_current = motion_driver_get_state();
+        
+        if (motion_current != s_motion_prev) {
+            s_motion_prev = motion_current;
+            ESP_LOGI(TAG, "Motion state changed: %s", motion_current ? "DETECTED" : "CLEARED");
+            
+            send_occupancy_to_network(motion_current, true);
+            
+            if (!motion_current) {
+                ESP_LOGI(TAG, "Motion cleared, setting zigbee finished flag");
+                s_zigbee_finished = true;
+                break;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    ESP_LOGI(TAG, "Monitor task finished");
+    vTaskDelete(NULL);
 }
 
 static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe)
@@ -118,16 +174,14 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Device started up in%s factory-reset mode",
                      esp_zb_bdb_is_factory_new() ? "" : " non");
-            if (esp_zb_bdb_is_factory_new()) {
-                ESP_LOGI(TAG, "Start network steering");
-                link_status_led_set_steering();
-                esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-            } else {
-                zigbee_motion_mark_joined();
-            }
+            ESP_LOGI(TAG, "Start network steering");
+            link_status_led_set_steering();
+            esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
         } else {
-            ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)",
-                     esp_err_to_name(err_status));
+            ESP_LOGW(TAG, "%s failed with status: %s, retrying",
+                     esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
+            esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                   ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
         }
         break;
 
@@ -222,7 +276,7 @@ static void esp_zb_task(void *pvParameters)
 
 /* ───────────────────── Public API ───────────────────── */
 
-esp_err_t zigbee_motion_init(void)
+TaskHandle_t zigbee_motion_init(void)
 {
     ESP_LOGI(TAG, "Initializing Zigbee motion light component");
 
@@ -230,6 +284,8 @@ esp_err_t zigbee_motion_init(void)
     s_pending_valid = false;
     s_pending_occupied = false;
     s_last_occupancy_state = false;
+    s_zigbee_finished = false;
+    s_motion_prev = false;
 
     /* Configure Zigbee platform */
     esp_zb_platform_config_t config = {
@@ -239,14 +295,14 @@ esp_err_t zigbee_motion_init(void)
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
 
     /* Create Zigbee task */
-    BaseType_t ret = xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
+    BaseType_t ret = xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, &s_zigbee_task_handle);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create Zigbee task");
-        return ESP_ERR_NO_MEM;
+        return NULL;
     }
 
     ESP_LOGI(TAG, "Zigbee motion light component initialized");
-    return ret;
+    return s_zigbee_task_handle;
 }
 
 esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
@@ -283,5 +339,10 @@ bool zigbee_motion_is_joined(void)
 bool zigbee_motion_occupancy_intent_pending(void)
 {
     return s_pending_valid;
+}
+
+bool zigbee_motion_is_finished(void)
+{
+    return s_zigbee_finished;
 }
 
