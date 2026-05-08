@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: CC0-1.0
  *
- * Motion Light with Zigbee Time Schedule
+ * Motion Light with Zigbee
  *
  * This example code is in the Public Domain (or CC0 licensed, at your option.)
  *
@@ -21,7 +21,6 @@
 #include "nvs_flash.h"
 #include "light_driver.h"
 #include "motion_driver.h"
-#include "time_schedule.h"
 #include "zigbee_motion.h"
 #include "link_status_led.h"
 
@@ -30,11 +29,8 @@ static const char *TAG = "MOTION_LIGHT";
 /* Motion-strip animation uses LEDs 1..N-1; LED 0 is reserved for Zigbee status. */
 #define STRIP_LED_FIRST_INDEX        1
 
-/* Deep sleep periodic timer (occupancy heartbeat + drift toward periodic time resync). */
+/* Deep sleep periodic timer (occupancy heartbeat). */
 #define DEEP_SLEEP_TIMER_INTERVAL_SEC   (3 * 60)
-
-/* Time sync re-sync interval after accumulated sleep duration (µs tally on timer wakes). */
-#define TIME_RESYNC_INTERVAL_SEC     (6 * 3600)
 
 #define GPIO_WAKE_NEED_ZB_MARGIN_US  (5000000LL)
 #define TIMER_WAKE_ZB_MARGIN_US      (1500000LL)
@@ -44,8 +40,6 @@ static const char *TAG = "MOTION_LIGHT";
 
 #define WAKE_EG_ANIM_DONE_BIT          BIT0
 
-/* RTC memory — cumulative deep-sleep timer duration since last Zigbee coordinator time apply */
-static RTC_DATA_ATTR int64_t s_accumulated_sleep_us = 0;
 
 /* Motion tracking */
 static int64_t s_last_motion_time_us = 0;
@@ -139,7 +133,7 @@ static void enter_deep_sleep(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting motion light with time schedule");
+    ESP_LOGI(TAG, "Starting motion light with Zigbee");
 
     ESP_ERROR_CHECK(nvs_flash_init());
 
@@ -147,30 +141,16 @@ void app_main(void)
     light_driver_set_rgb(0, 0, 0);
     link_status_led_init();
 
-    ESP_ERROR_CHECK(time_schedule_init());
 
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
     const char *wakeup_str = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) ? "GPIO" :
                              (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" :
                              (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";
-    ESP_LOGI(TAG, "Wakeup: %s, synced: %d", wakeup_str, time_schedule_is_time_synced());
+    ESP_LOGI(TAG, "Wakeup: %s", wakeup_str);
 
     motion_driver_init();
 
-    bool need_time_sync = !time_schedule_is_time_synced();
-
-    if (!need_time_sync) {
-        if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-            s_accumulated_sleep_us += (int64_t)DEEP_SLEEP_TIMER_INTERVAL_SEC * 1000000LL;
-        }
-        if (s_accumulated_sleep_us > (int64_t)TIME_RESYNC_INTERVAL_SEC * 1000000LL) {
-            ESP_LOGI(TAG, "Periodic time re-sync needed");
-            need_time_sync = true;
-        }
-    }
-
-    zigbee_motion_set_coordinator_time_read_enabled(need_time_sync);
     ESP_ERROR_CHECK(zigbee_motion_init());
 
     const int64_t wakeup_start_us = esp_timer_get_time();
@@ -190,14 +170,9 @@ void app_main(void)
         ESP_LOGI(TAG, "Timer wakeup: occupancy refresh published");
     }
 
-    bool should_animate = false;
+    bool should_animate = gpio_wake;
     if (gpio_wake) {
-        if (!time_schedule_is_time_synced() || time_schedule_is_active()) {
-            should_animate = true;
-            ESP_LOGI(TAG, "Motion detected -> animation will run");
-        } else {
-            ESP_LOGI(TAG, "Motion detected outside schedule -> no animation");
-        }
+        ESP_LOGI(TAG, "Motion detected -> animation will run");
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
         ESP_LOGI(TAG, "Timer wakeup, no animation");
     } else {
@@ -215,22 +190,8 @@ void app_main(void)
         xEventGroupSetBits(s_wake_event_group, WAKE_EG_ANIM_DONE_BIT);
     }
 
-    int64_t wait_deadline_us = loop_start_us;
-    bool run_baseline_wait = false;
-
-    if (need_time_sync) {
-        int64_t time_since_motion = s_last_motion_time_us > 0
-                                        ? (esp_timer_get_time() - s_last_motion_time_us)
-                                        : 0;
-        int64_t remaining_wait_us = 30000000LL - time_since_motion;
-        if (remaining_wait_us > 0) {
-            wait_deadline_us = loop_start_us + remaining_wait_us;
-            run_baseline_wait = true;
-        }
-    } else {
-        wait_deadline_us = loop_start_us + (gpio_wake ? GPIO_WAKE_NEED_ZB_MARGIN_US : TIMER_WAKE_ZB_MARGIN_US);
-        run_baseline_wait = true;
-    }
+    int64_t wait_deadline_us = loop_start_us + (gpio_wake ? GPIO_WAKE_NEED_ZB_MARGIN_US : TIMER_WAKE_ZB_MARGIN_US);
+    bool run_baseline_wait = true;
 
     bool zb_baseline_done = !run_baseline_wait;
     bool pending_cap_warn_logged = false;
@@ -246,33 +207,7 @@ void app_main(void)
         bool within_baseline_deadline = run_baseline_wait && now_us < wait_deadline_us;
 
         if (!zb_baseline_done) {
-            bool exit_baseline = false;
-
-            if (need_time_sync) {
-                if (zigbee_motion_is_time_synced()) {
-                    ESP_LOGI(TAG, "Zigbee time sync completed successfully");
-                    s_accumulated_sleep_us = 0;
-                    exit_baseline = true;
-                } else if (zigbee_motion_is_sync_failed()) {
-                    ESP_LOGW(TAG, "Zigbee sync failed");
-                    exit_baseline = true;
-                } else if (!within_baseline_deadline) {
-                    ESP_LOGW(TAG, "Zigbee sync timeout");
-                    exit_baseline = true;
-                }
-            } else {
-                /*
-                 * time_schedule already synced: we still restart Zigbee and the stack sends a
-                 * coordinator Time read every wake ("Device rebooted"). Do not mirror the legacy
-                 * join+JOIN_GATE shortcut here — exiting too early sleeps before READ_ATTR RESP and
-                 * looks like Zigbee sends nothing visible in logs / HA misses updates until next wake.
-                 */
-                if (!within_baseline_deadline) {
-                    exit_baseline = true;
-                }
-            }
-
-            if (exit_baseline) {
+            if (!within_baseline_deadline) {
                 zb_baseline_done = true;
             }
         }
@@ -306,7 +241,7 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    ESP_LOGI(TAG, "Wakeup: %s, synced: %d", wakeup_str, time_schedule_is_time_synced());
+    ESP_LOGI(TAG, "Wakeup: %s", wakeup_str);
 
     enter_deep_sleep();
 }

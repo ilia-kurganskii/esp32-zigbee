@@ -21,20 +21,12 @@ extern "C" {
  * @brief Initialize Zigbee motion light component.
  *
  * This function initializes the Zigbee stack, creates the necessary clusters
- * (Basic, Identify, On/Off, Time, Occupancy Sensing), and starts the Zigbee task.
+ * (Basic, Identify, On/Off, Occupancy Sensing), and starts the Zigbee task.
  *
  * @return ESP_OK on success, error code otherwise
  */
 esp_err_t zigbee_motion_init(void);
 
-/**
- * Control coordinator Time-cluster read after join/reboot.
- *
- * Call each wake before zigbee_motion_init(). Pass false when time_schedule already has valid
- * wall time so we skip READ_ATTR(Time) bursts; pass true after power-on (no Zigbee calendar yet),
- * periodic six-hour drift window, or any path where main sets need_time_sync.
- */
-void zigbee_motion_set_coordinator_time_read_enabled(bool enabled);
 
 /**
  * @brief Send occupancy report to Zigbee network.
@@ -52,34 +44,13 @@ esp_err_t zigbee_motion_send_occupancy_report(bool occupied);
  */
 esp_err_t zigbee_motion_publish_occupancy_refresh(bool occupied);
 
-/**
- * @brief Check if Zigbee time sync is complete.
- *
- * @return true if time has been synced, false otherwise
- */
-bool zigbee_motion_is_time_synced(void);
 
 /**
  * @brief True after join (steering success or reboot on network).
  */
 bool zigbee_motion_is_joined(void);
 
-/**
- * @brief Check if Zigbee sync has failed.
- *
- * @return true if sync failed, false otherwise
- */
-bool zigbee_motion_is_sync_failed(void);
 
-/**
- * @brief Wait for Zigbee time sync with timeout.
- *
- * Waits for time sync to complete or timeout.
- *
- * @param timeout_ms Timeout in milliseconds
- * @return ESP_OK if sync completed, ESP_ERR_TIMEOUT if timeout, error otherwise
- */
-esp_err_t zigbee_motion_wait_for_sync(uint32_t timeout_ms);
 
 /**
  * @brief True while a requested occupancy value is still pending (queued before join, or must retry after a failed apply).
