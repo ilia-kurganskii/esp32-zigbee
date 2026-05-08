@@ -33,9 +33,6 @@ static const char *TAG = "MOTION_LIGHT";
 /* Time sync re-sync interval: every 6 hours of deep sleep wakeups */
 #define TIME_RESYNC_INTERVAL_SEC     (6 * 3600)
 
-/* After join window when time sync is not awaited (µs). */
-#define ZB_JOIN_GATE_US              (800000LL)
-
 #define GPIO_WAKE_NEED_ZB_MARGIN_US  (5000000LL)
 #define TIMER_WAKE_ZB_MARGIN_US      (2000000LL)
 
@@ -254,10 +251,13 @@ void app_main(void)
                     exit_baseline = true;
                 }
             } else {
-                if (zigbee_motion_is_joined() &&
-                    (now_us - loop_start_us) >= ZB_JOIN_GATE_US) {
-                    exit_baseline = true;
-                } else if (!within_baseline_deadline) {
+                /*
+                 * time_schedule already synced: we still restart Zigbee and the stack sends a
+                 * coordinator Time read every wake ("Device rebooted"). Do not mirror the legacy
+                 * join+JOIN_GATE shortcut here — exiting too early sleeps before READ_ATTR RESP and
+                 * looks like Zigbee sends nothing visible in logs / HA misses updates until next wake.
+                 */
+                if (!within_baseline_deadline) {
                     exit_baseline = true;
                 }
             }
