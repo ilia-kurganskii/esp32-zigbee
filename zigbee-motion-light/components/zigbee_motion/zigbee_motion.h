@@ -68,7 +68,7 @@ bool zigbee_motion_is_sync_failed(void);
 esp_err_t zigbee_motion_wait_for_sync(uint32_t timeout_ms);
 
 /**
- * @brief True while occupancy must still be pushed to the stack after join or after a failed apply.
+ * @brief True while a requested occupancy value is still pending (queued before join, or must retry after a failed apply).
  */
 bool zigbee_motion_occupancy_intent_pending(void);
 
