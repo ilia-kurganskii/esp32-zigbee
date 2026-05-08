@@ -71,11 +71,13 @@ static void flush_pending_occupancy(void)
     if (!s_joined || !s_pending_valid) {
         return;
     }
-    s_pending_valid = false;
-    esp_err_t r = send_occupancy_to_network(s_pending_occupied);
-    if (r != ESP_OK) {
-        ESP_LOGW(TAG, "flush pending occupancy failed");
+    bool occ = s_pending_occupied;
+    esp_err_t r = send_occupancy_to_network(occ);
+    if (r == ESP_OK) {
+        s_pending_valid = false;
+        return;
     }
+    ESP_LOGW(TAG, "flush pending occupancy failed, keeping intent for retry");
 }
 
 static esp_err_t send_occupancy_to_network(bool occupied)
@@ -336,6 +338,11 @@ esp_err_t zigbee_motion_send_occupancy_report(bool occupied)
 bool zigbee_motion_is_joined(void)
 {
     return s_joined;
+}
+
+bool zigbee_motion_occupancy_intent_pending(void)
+{
+    return s_pending_valid;
 }
 
 bool zigbee_motion_is_time_synced(void)
