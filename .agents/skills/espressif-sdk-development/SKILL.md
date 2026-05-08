@@ -62,6 +62,12 @@ alias get_idf='. $HOME/esp/esp-idf/export.sh'
 get_idf
 ```
 
+### Agent / automated builds (mandatory)
+
+- **Never skip `idf.py build`** after substantive C/component/CMake changes. Treat firmware work as incomplete until `idf.py build` has completed successfully unless a failure has been analysed and intentionally accepted.
+- **Always activate ESP-IDF in the shell first** (`get_idf`, or `. $HOME/esp/esp-idf/export.sh`, or sourcing `export.sh` from your ESP-IDF clone) before invoking `idf.py`. Cursor and other non-login shells typically do **not** have `idf.py` on `PATH`.
+- **FreeRTOS include order**: include `freertos/FreeRTOS.h` **before** `freertos/task.h` (and fix any transitive includes that violate this).
+
 ### Step 3: VS Code Setup (Optional but Recommended)
 1. Install ESP-IDF extension from Espressif in VS Code
 2. Configure ESP-IDF path in extension settings

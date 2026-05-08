@@ -13,8 +13,17 @@ This repository contains ESP32 Zigbee examples and implementations using the ESP
 
 ## Development Commands
 
+### ESP-IDF in agents and fresh shells
+
+Load the toolchain before **`idf.py`** (Cursor and scripted shells often omit it from `PATH`): run **`get_idf`** or **`$HOME/esp/esp-idf/export.sh`** (many setups alias `get_idf` to sourcing that script). After substantive firmware edits, **`idf.py build`** must be run from the relevant project directory; do not rely on claiming success without building.
+
+Include **`freertos/FreeRTOS.h` before `freertos/task.h`** in C sources.
+
 ### Building and Flashing
 ```bash
+# Load IDF environment first (fresh terminal / automation)
+get_idf   # or: . $HOME/esp/esp-idf/export.sh
+
 # Set target chip (run from project directory)
 idf.py --preview set-target esp32c6  # or esp32h2
 
