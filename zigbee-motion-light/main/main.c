@@ -16,6 +16,7 @@
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "light_driver.h"
@@ -38,12 +39,24 @@ static const char *TAG = "MOTION_LIGHT";
 #define GPIO_WAKE_NEED_ZB_MARGIN_US  (5000000LL)
 #define TIMER_WAKE_ZB_MARGIN_US      (2000000LL)
 
+/* Absolute supervisor cap when occupancy intent pending (µs). */
+#define ZB_HARD_CAP_EXTRA_PENDING_US   (60 * 1000000LL)
+
+#define WAKE_EG_ANIM_DONE_BIT          BIT0
+
 /* RTC memory - track total sleep time for periodic resync */
 static RTC_DATA_ATTR int64_t s_accumulated_sleep_us = 0;
 static RTC_DATA_ATTR int64_t s_last_sync_time_us = 0;
 
 /* Motion tracking */
 static int64_t s_last_motion_time_us = 0;
+
+static EventGroupHandle_t s_wake_event_group;
+
+static inline int64_t i64_max(int64_t a, int64_t b)
+{
+    return (a > b) ? a : b;
+}
 
 /* ───────────────────── LED Animation ───────────────────── */
 
@@ -79,6 +92,34 @@ static void led_phase_out_animation(void)
         light_driver_set_pixel(led, 0, 0, 0);
     }
     /* Do not call light_driver_set_rgb() — it overwrites pixel 0 (status LED). */
+}
+
+static void motion_strip_anim_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    bool motion_detected = motion_driver_get_state();
+    if (motion_detected) {
+        zigbee_motion_send_occupancy_report(true);
+    }
+
+    do {
+        led_active_animation();
+
+        motion_detected = motion_driver_get_state();
+        if (motion_detected) {
+            s_last_motion_time_us = esp_timer_get_time();
+            ESP_LOGI(TAG, "Motion still detected, looping animation");
+        } else {
+            ESP_LOGI(TAG, "No motion detected, starting phase out");
+            zigbee_motion_send_occupancy_report(false);
+            led_phase_out_animation();
+            break;
+        }
+    } while (motion_detected);
+
+    xEventGroupSetBits(s_wake_event_group, WAKE_EG_ANIM_DONE_BIT);
+    vTaskDelete(NULL);
 }
 
 /* ───────────────────── Deep Sleep ───────────────────── */
@@ -129,16 +170,14 @@ void app_main(void)
         }
     }
 
-    const bool zigbee_started = need_time_sync || (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO);
+    ESP_ERROR_CHECK(zigbee_motion_init());
 
-    if (zigbee_started) {
-        link_status_led_set_steering();
-        ESP_ERROR_CHECK(zigbee_motion_init());
-    }
+    const int64_t wakeup_start_us = esp_timer_get_time();
+    const int64_t loop_start_us = wakeup_start_us;
 
     const bool gpio_wake = (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO);
     bool motion_prev = false;
-    if (gpio_wake && zigbee_started) {
+    if (gpio_wake) {
         motion_prev = motion_driver_get_state();
         zigbee_motion_send_occupancy_report(motion_prev);
     }
@@ -155,35 +194,21 @@ void app_main(void)
         ESP_LOGI(TAG, "Timer wakeup, no animation");
     } else {
         ESP_LOGI(TAG, "First boot");
-        link_status_led_set_steering();
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
+    s_wake_event_group = xEventGroupCreate();
+    ESP_ERROR_CHECK(s_wake_event_group ? ESP_OK : ESP_ERR_NO_MEM);
+
     if (should_animate) {
-        bool motion_detected = motion_driver_get_state();
-        if (motion_detected) {
-            zigbee_motion_send_occupancy_report(true);
-        }
-
-        do {
-            led_active_animation();
-
-            motion_detected = motion_driver_get_state();
-            if (motion_detected) {
-                s_last_motion_time_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "Motion still detected, looping animation");
-            } else {
-                ESP_LOGI(TAG, "No motion detected, starting phase out");
-                zigbee_motion_send_occupancy_report(false);
-                led_phase_out_animation();
-                break;
-            }
-        } while (motion_detected);
+        BaseType_t ok = xTaskCreate(motion_strip_anim_task, "strip_anim", 4096, NULL, 3, NULL);
+        ESP_ERROR_CHECK(ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    } else {
+        xEventGroupSetBits(s_wake_event_group, WAKE_EG_ANIM_DONE_BIT);
     }
 
-    int64_t loop_start_us = esp_timer_get_time();
     int64_t wait_deadline_us = loop_start_us;
-    bool run_wait_loop = false;
+    bool run_baseline_wait = false;
 
     if (need_time_sync) {
         int64_t time_since_motion = s_last_motion_time_us > 0
@@ -191,54 +216,84 @@ void app_main(void)
                                         : 0;
         int64_t remaining_wait_us = 30000000LL - time_since_motion;
         if (remaining_wait_us > 0) {
-            wait_deadline_us += remaining_wait_us;
-            run_wait_loop = true;
+            wait_deadline_us = loop_start_us + remaining_wait_us;
+            run_baseline_wait = true;
         }
-    } else if (zigbee_started) {
-        wait_deadline_us += gpio_wake ? GPIO_WAKE_NEED_ZB_MARGIN_US : TIMER_WAKE_ZB_MARGIN_US;
-        run_wait_loop = true;
+    } else {
+        wait_deadline_us = loop_start_us + (gpio_wake ? GPIO_WAKE_NEED_ZB_MARGIN_US : TIMER_WAKE_ZB_MARGIN_US);
+        run_baseline_wait = true;
     }
 
-    if (run_wait_loop) {
-        while (esp_timer_get_time() < wait_deadline_us) {
-            bool exit_loop = false;
+    bool zb_baseline_done = !run_baseline_wait;
+    bool pending_cap_warn_logged = false;
+
+    for (;;) {
+        bool anim_done = (xEventGroupGetBits(s_wake_event_group) & WAKE_EG_ANIM_DONE_BIT) != 0;
+
+        if (zigbee_motion_occupancy_intent_pending()) {
+            wait_deadline_us = i64_max(wait_deadline_us, wakeup_start_us + ZB_HARD_CAP_EXTRA_PENDING_US);
+        }
+
+        int64_t now_us = esp_timer_get_time();
+        bool within_baseline_deadline = run_baseline_wait && now_us < wait_deadline_us;
+
+        if (!zb_baseline_done) {
+            bool exit_baseline = false;
 
             if (need_time_sync) {
                 if (zigbee_motion_is_time_synced()) {
                     ESP_LOGI(TAG, "Zigbee time sync completed successfully");
                     s_last_sync_time_us = esp_timer_get_time();
                     s_accumulated_sleep_us = 0;
-                    exit_loop = true;
+                    exit_baseline = true;
                 } else if (zigbee_motion_is_sync_failed()) {
                     ESP_LOGW(TAG, "Zigbee sync failed");
-                    exit_loop = true;
+                    exit_baseline = true;
+                } else if (!within_baseline_deadline) {
+                    ESP_LOGW(TAG, "Zigbee sync timeout");
+                    exit_baseline = true;
                 }
-            } else if (zigbee_motion_is_joined() &&
-                       (esp_timer_get_time() - loop_start_us) >= ZB_JOIN_GATE_US) {
-                exit_loop = true;
-            }
-
-            if (exit_loop) {
-                break;
-            }
-
-            if (gpio_wake && zigbee_started) {
-                bool m = motion_driver_get_state();
-                if (m != motion_prev) {
-                    motion_prev = m;
-                    zigbee_motion_send_occupancy_report(m);
-                    if (m) {
-                        s_last_motion_time_us = esp_timer_get_time();
-                    }
+            } else {
+                if (zigbee_motion_is_joined() &&
+                    (now_us - loop_start_us) >= ZB_JOIN_GATE_US) {
+                    exit_baseline = true;
+                } else if (!within_baseline_deadline) {
+                    exit_baseline = true;
                 }
             }
 
-            vTaskDelay(pdMS_TO_TICKS(100));
+            if (exit_baseline) {
+                zb_baseline_done = true;
+            }
         }
 
-        if (need_time_sync && !zigbee_motion_is_time_synced() && !zigbee_motion_is_sync_failed()) {
-            ESP_LOGW(TAG, "Zigbee sync timeout");
+        bool pending_now = zigbee_motion_occupancy_intent_pending();
+        bool cap_elapsed = (now_us - wakeup_start_us) >= ZB_HARD_CAP_EXTRA_PENDING_US;
+
+        if (zb_baseline_done && pending_now && cap_elapsed && !pending_cap_warn_logged) {
+            ESP_LOGW(TAG, "Sleeping with pending occupancy; will retry next wake");
+            pending_cap_warn_logged = true;
         }
+
+        bool zigbee_track_complete = zb_baseline_done &&
+                                     (!pending_now || pending_cap_warn_logged);
+
+        if (anim_done && zigbee_track_complete) {
+            break;
+        }
+
+        if (gpio_wake) {
+            bool m = motion_driver_get_state();
+            if (m != motion_prev) {
+                motion_prev = m;
+                zigbee_motion_send_occupancy_report(m);
+                if (m) {
+                    s_last_motion_time_us = esp_timer_get_time();
+                }
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     ESP_LOGI(TAG, "Wakeup: %s, synced: %d", wakeup_str, time_schedule_is_time_synced());
