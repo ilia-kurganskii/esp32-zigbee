@@ -28,11 +28,13 @@ All Home Assistant facing rules in the related spec **remain**:
   **(A)** the animation track has **finished or was not scheduled** for this wake, **and**  
   **(B)** the Zigbee track is **complete** per §5 (including **no pending occupancy intent** awaiting application after join, within cap).
 
+**Divergence from related spec §5 (init gating):** The **parent** document allows policy-driven “whether to start Zigbee” on a wake. **This structure spec requires `zigbee_motion_init()` on every wake** (after shared driver init). **Power / schedule policy** (`need_time_sync`, periodic resync, GPIO vs timer) continues to control **how long** the supervisor waits and **which join/sync branch** runs — **not** whether the stack is started.
+
 ## 3. Recommended architecture (approach 2)
 
 - **`zigbee_motion`** — unchanged public role plus small API for §6; owns pending occupancy buffering and flush-on-join (**with correct rollback on flush failure**, see §6).
 - **Animation worker** — `FreeRTOS` task created only when `should_animate`; runs existing `led_active_animation` / `led_phase_out` logic (pixels **1…N−1** only); signals completion to the supervisor (event bit or semaphore).
-- **Supervisor (`app_main`)** — after shared init and optional `zigbee_motion_init()`, starts the animation task if needed (**or** sets “animation complete” immediately), then runs the **bounded radio wait loop** (time sync / join margins / motion edge polling **unchanged** in intent from current `main.c`), extended per §5 when occupancy is pending. Loop exits when **both** tracks satisfy §4.
+- **Supervisor (`app_main`)** — after shared init, **always** calls `zigbee_motion_init()` (see §2), then starts the animation task if needed (**or** sets “animation complete” immediately), then runs the **bounded radio wait loop** (time sync / join margins / motion edge polling per §4.2), extended per §5 when occupancy is pending. Loop exits when **both** tracks satisfy §4.
 
 No third “framework” abstraction is required unless the wait loop exceeds ~150 lines—in that case a static `wake_session.c` in `main/` is optional consolidation; **prefer keeping logic in `main.c`** until size forces split.
 
@@ -51,13 +53,13 @@ Default: Zigbee stack task unchanged; animation task at **≤** Zigbee priority 
 
 If animation task faults (assert / early return — not expected), log and still set completion to avoid deadlock; strip should be cleared in `enter_deep_sleep` as today.
 
-### 4.2 Zigbee track (baseline, unchanged intent)
+### 4.2 Zigbee track (baseline wait — stack always on)
 
-Reuse current `main.c` branching:
+**Stack:** `zigbee_motion_init()` runs **every** wake (§2). The **wait loop** reuses the **same completion rules** as today’s `main.c`, but **without** a “skip Zigbee entirely” branch.
 
-- If **time sync required** this wake: wait until **time synced**, **sync failed**, or **timeout**. Timeout baseline remains tied to **30 s after last motion** as in today’s logic (subtract elapsed since last motion if applicable).
-- If **no** time sync required but Zigbee started: wait until join gate (`ZB_JOIN_GATE_US`) **after** `loop_start_us` **and** use GPIO vs timer margin (`GPIO_WAKE_NEED_ZB_MARGIN_US` / `TIMER_WAKE_ZB_MARGIN_US`).
-- If Zigbee **never** started (`zigbee_started == false`): track complete **immediately**.
+- If **time sync required** this wake (`need_time_sync`): wait until **time synced**, **sync failed**, or **timeout**. Timeout baseline remains tied to **30 s after last motion** as in today’s logic (subtract elapsed since last motion if applicable).
+- If **no** time sync required this wake: wait until join gate (`ZB_JOIN_GATE_US`) **after** `loop_start_us` **and** use GPIO vs timer margin (`GPIO_WAKE_NEED_ZB_MARGIN_US` / `TIMER_WAKE_ZB_MARGIN_US`) according to **wakeup cause** (not according to “was Zigbee started”).
+- **Init failure** (e.g. `zigbee_motion_init()` not `ESP_OK`): document behaviour (log, avoid deadlock); treat as out of scope for normative sleep gate unless product requires a fallback — default is **fail fast** while keeping motor/sleep safe if stack refuses to start.
 
 ### 4.3 Option B extension — pending occupancy
 
@@ -75,7 +77,7 @@ If the **absolute cap** elapses and intent is **still** pending:
 
 ### 4.4 Zigbee track “complete” (summary)
 
-`zigbee_track_complete` is true when **either** Zigbee was not started this wake, **or** all of the following hold:
+`zigbee_track_complete` is true when **all** of the following hold (stack is always started; there is no “ZB skipped this wake” fast path):
 
 1. **Baseline exit** from the **existing** `main.c` wait loop (time sync resolved / failed / timeout, or join gate + margin satisfied when time sync not awaited).
 2. **`!zigbee_motion_occupancy_intent_pending()`**, **or** the supervisor has hit the §4.3 absolute cap **and** logged the WARN path (pending carried to next wake).
@@ -84,11 +86,10 @@ If the **absolute cap** elapses and intent is **still** pending:
 
 ```text
 init (unchanged order: NVS, light, link_status_led, schedule, motion, logs)
-compute need_time_sync, zigbee_started, gpio_wake, early occupancy on GPIO (unchanged)
+compute need_time_sync, gpio_wake, early occupancy on GPIO when applicable
 compute should_animate (unchanged)
 
-if zigbee_started:
-    zigbee_motion_init()  // as today
+zigbee_motion_init()  // always; no gating on need_time_sync or wakeup reason
 
 record wakeup_start_us = esp_timer_get_time()
 compute base wait_deadline_us from existing main.c rules (time sync path vs join margin path)
@@ -105,7 +106,7 @@ while (!(anim_done && zigbee_track_complete)):
     cap_elapsed = (esp_timer_get_time() - wakeup_start_us) >= ZB_HARD_CAP_EXTRA_PENDING_US
     pending = zigbee_motion_occupancy_intent_pending()
     zigbee_track_complete = inner_baseline_exit && (!pending || (cap_elapsed && logged_pending_sleep_warn))
-    on GPIO wake + zigbee_started: motion edge polling → send_occupancy_report (unchanged)
+    on GPIO wake: motion edge polling → send_occupancy_report (stack always up)
     vTaskDelay(100ms)
 
 enter_deep_sleep()
@@ -141,13 +142,14 @@ Dedup path (“already same as `s_last_occupancy_state`”) counts as successful
 |---|----------|--------|
 | 1 | GPIO wake, `should_animate`, slow join | Strip runs immediately; Zigbee progresses; sleep only after strip done **and** join margin / sync logic satisfied **and** pending cleared or cap logged. |
 | 2 | Motion before join | Pending set; animation may finish early; supervisor stays up until flush succeeds or **60 s** cap WARN. |
-| 3 | ZB never started | Immediate Zigbee-complete; animation rule unchanged; sleep promptly after strip if any. |
+| 3 | Timer wake (no motion) | Zigbee still starts; wait loop uses **timer** margin; no strip unless rules say so; occupancy only from edge polling when GPIO wake. |
 | 4 | Attribute write fails transiently | Pending remains or is restored; retry within window until success or cap. |
 
 ## 9. Implementation boundaries
 
 - Single wake session only; **no** new cluster types or HA behaviour beyond sleep gating refinements above.
 - **Do not** block animation start on join/sync (preserves §3.2 of related spec).
+- **Power trade-off:** timer (or other non-GPIO) wakes that previously skipped the Zigbee stack **no longer** save that radio-off interval; each wake pays **init + join/sync/margin** cost — acceptable by explicit product choice (§10).
 
 ## 10. Resolved decisions (traceability)
 
@@ -157,3 +159,4 @@ Dedup path (“already same as `s_last_occupancy_state`”) counts as successful
 | Occupancy strictness before sleep | **B** — no sleep while pending intent, subject to §4.3 cap |
 | Cap | **60 s** absolute-from-wakeup default (`ZB_HARD_CAP_EXTRA_PENDING_US`); tuning via same pattern as existing `*_US` defines |
 | Post-cap behaviour | WARN, keep pending for next wake, enter deep sleep |
+| Zigbee on wake | **Always** start stack (`zigbee_motion_init()`); policy bits affect **wait** only, not init |
