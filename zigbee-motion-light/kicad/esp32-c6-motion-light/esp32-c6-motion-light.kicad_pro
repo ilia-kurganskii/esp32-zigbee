@@ -657,7 +657,7 @@
         "uuid": "bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
       }
     ],
-    "used_designators": "LED1,U1,PIR2",
+    "used_designators": "JP1,#FLG5,#PWR13-19,J1,LED1,TP1-4,U1,PIR2",
     "variants": []
   },
   "sheets": [

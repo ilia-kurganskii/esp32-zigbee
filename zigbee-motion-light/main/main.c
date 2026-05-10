@@ -76,13 +76,15 @@ void app_main(void)
     }
 
     bool is_animate_task_finished = false;
+    bool is_zigbee_joined = false;
     int64_t last_log_us = esp_timer_get_time();
-    while (!is_animate_task_finished) {
+    while (!is_animate_task_finished || !is_zigbee_joined) {
         is_animate_task_finished = light_animation_is_finished();
+        is_zigbee_joined = zigbee_motion_is_joined();
         
         int64_t now_us = esp_timer_get_time();
         if (now_us - last_log_us >= 1000000) {
-            ESP_LOGI(TAG, "Waiting for animation task to finish... %d", is_animate_task_finished);
+            ESP_LOGI(TAG, "Waiting for tasks... animation:%d zigbee_joined:%d", is_animate_task_finished, is_zigbee_joined);
             last_log_us = now_us;
         }
         
