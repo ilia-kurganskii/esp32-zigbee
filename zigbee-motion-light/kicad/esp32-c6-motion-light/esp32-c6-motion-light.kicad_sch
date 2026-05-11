@@ -84,9 +84,9 @@
 			)
 			(symbol "AM312_1_1"
 				(pin power_in line
-					(at 5.08 0 180)
+					(at 5.08 -5.08 180)
 					(length 2.54)
-					(name "VCC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -120,9 +120,9 @@
 					)
 				)
 				(pin power_in line
-					(at 5.08 -5.08 180)
+					(at 5.08 0 180)
 					(length 2.54)
-					(name "GND"
+					(name "VCC"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -214,9 +214,9 @@
 			)
 			(symbol "LED_CONNECTOR_1_1"
 				(pin power_in line
-					(at 6.35 1.27 180)
+					(at 6.35 -3.81 180)
 					(length 2.54)
-					(name "VCC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -250,9 +250,9 @@
 					)
 				)
 				(pin power_in line
-					(at 6.35 -3.81 180)
+					(at 6.35 1.27 180)
 					(length 2.54)
-					(name "GND"
+					(name "VCC"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1564,6 +1564,156 @@
 				(pin passive line
 					(at 5.08 0 180)
 					(length 3.81)
+					(name "B"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol "Switch:SW_SPST"
+			(pin_names
+				(offset 0)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "SW"
+				(at 0 3.175 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "SW_SPST"
+				(at 0 -2.54 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" "Single Pole Single Throw (SPST) switch"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "switch lever"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "SW_SPST_0_0"
+				(circle
+					(center -2.032 0)
+					(radius 0.508)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.524 0.254) (xy 1.524 1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 2.032 0)
+					(radius 0.508)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "SW_SPST_1_1"
+				(pin passive line
+					(at -5.08 0 0)
+					(length 2.54)
+					(name "A"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 5.08 0 180)
+					(length 2.54)
 					(name "B"
 						(effects
 							(font
@@ -2930,7 +3080,7 @@
 	(text_box "BATTERY CONNECTOR"
 		(exclude_from_sim no)
 		(at 172.72 92.71 0)
-		(size 31.75 33.02)
+		(size 31.75 62.23)
 		(margins 0.9525 0.9525 0.9525 0.9525)
 		(stroke
 			(width 0)
@@ -3081,16 +3231,6 @@
 	)
 	(wire
 		(pts
-			(xy 193.04 105.41) (xy 193.04 107.95)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "2c4a7a8e-6760-448b-8483-068edbbae9fb")
-	)
-	(wire
-		(pts
 			(xy 30.48 50.8) (xy 41.91 50.8)
 		)
 		(stroke
@@ -3101,7 +3241,7 @@
 	)
 	(wire
 		(pts
-			(xy 193.04 111.76) (xy 193.04 110.49)
+			(xy 195.58 116.84) (xy 195.58 115.57)
 		)
 		(stroke
 			(width 0)
@@ -3161,6 +3301,16 @@
 	)
 	(wire
 		(pts
+			(xy 195.58 139.7) (xy 190.5 139.7)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5fd826a1-de1e-47bf-bb40-6de2a56b1d9f")
+	)
+	(wire
+		(pts
 			(xy 120.65 123.19) (xy 138.43 123.19)
 		)
 		(stroke
@@ -3178,6 +3328,16 @@
 			(type default)
 		)
 		(uuid "69aad635-ebb2-4a80-83e8-7bd2d9014ca8")
+	)
+	(wire
+		(pts
+			(xy 190.5 137.16) (xy 195.58 137.16)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6aadde46-36a2-4fd1-ab12-264c89a8ebc5")
 	)
 	(wire
 		(pts
@@ -3208,6 +3368,16 @@
 			(type default)
 		)
 		(uuid "7d284c92-f952-458d-a900-064a7738f09a")
+	)
+	(wire
+		(pts
+			(xy 195.58 140.97) (xy 195.58 139.7)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "81366486-894b-4ada-9733-9b00c3c3d928")
 	)
 	(wire
 		(pts
@@ -3281,6 +3451,16 @@
 	)
 	(wire
 		(pts
+			(xy 190.5 113.03) (xy 195.58 113.03)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b07168e6-42a5-4088-83d1-8bfe37593cd1")
+	)
+	(wire
+		(pts
 			(xy 149.86 146.05) (xy 153.67 146.05)
 		)
 		(stroke
@@ -3308,6 +3488,16 @@
 			(type default)
 		)
 		(uuid "c50ba2cc-e4bd-4efa-9210-c310cb91d55b")
+	)
+	(wire
+		(pts
+			(xy 195.58 115.57) (xy 190.5 115.57)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d5242a54-4ffd-4ac3-813e-17efb119377a")
 	)
 	(wire
 		(pts
@@ -3348,6 +3538,16 @@
 			(type default)
 		)
 		(uuid "e2e82176-a7a9-46b7-a7d4-74ca88dcb838")
+	)
+	(wire
+		(pts
+			(xy 195.58 134.62) (xy 195.58 137.16)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f6286752-38c7-4da0-b2aa-262541194ac0")
 	)
 	(wire
 		(pts
@@ -3451,7 +3651,7 @@
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
-		(at 187.96 110.49 180)
+		(at 185.42 115.57 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -3461,7 +3661,7 @@
 		(dnp no)
 		(uuid "0407358c-bb2b-461b-bb41-89c63b5009eb")
 		(property "Reference" "J1"
-			(at 187.96 101.6 0)
+			(at 185.42 106.68 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -3471,7 +3671,7 @@
 			)
 		)
 		(property "Value" "Conn_01x02"
-			(at 183.896 104.14 0)
+			(at 181.356 109.22 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -3481,7 +3681,7 @@
 			)
 		)
 		(property "Footprint" "Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical"
-			(at 187.96 110.49 0)
+			(at 185.42 115.57 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3492,7 +3692,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 187.96 110.49 0)
+			(at 185.42 115.57 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3503,7 +3703,7 @@
 			)
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"
-			(at 187.96 110.49 0)
+			(at 185.42 115.57 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3602,6 +3802,84 @@
 			(project "esp32-c6-motion-light"
 				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
 					(reference "TP2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:-BATT")
+		(at 195.58 140.97 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "0670191e-fd3c-4e93-a317-586ffaeed76e")
+		(property "Reference" "#PWR020"
+			(at 195.58 137.16 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "-BATT"
+			(at 195.58 146.05 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 195.58 140.97 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 195.58 140.97 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"-BATT\""
+			(at 195.58 140.97 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "00099923-9b38-4fa5-ad26-81cecc3fbaa8")
+		)
+		(instances
+			(project "esp32-c6-motion-light"
+				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
+					(reference "#PWR020")
 					(unit 1)
 				)
 			)
@@ -3839,6 +4117,85 @@
 			(project "esp32-c6-motion-light"
 				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
 					(reference "#FLG05")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector_Generic:Conn_01x02")
+		(at 185.42 139.7 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "3bc56b76-e742-476d-bcc7-21cfad567d7c")
+		(property "Reference" "J2"
+			(at 185.42 130.81 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "Conn_01x02"
+			(at 181.356 133.35 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical"
+			(at 185.42 139.7 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 185.42 139.7 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"
+			(at 185.42 139.7 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "a0f40053-6955-41c5-b538-490b88856758")
+		)
+		(pin "2"
+			(uuid "d3a33bd5-1305-483c-a24e-caa2c407e4e9")
+		)
+		(instances
+			(project "esp32-c6-motion-light"
+				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
+					(reference "J2")
 					(unit 1)
 				)
 			)
@@ -4239,6 +4596,83 @@
 			(project "esp32-c6-motion-light"
 				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
 					(reference "R2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+BATT")
+		(at 195.58 134.62 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "600f0613-c25f-485c-87c5-9db0fc9615b9")
+		(property "Reference" "#PWR021"
+			(at 195.58 138.43 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "+BATT"
+			(at 194.564 129.54 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 195.58 134.62 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 195.58 134.62 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+BATT\""
+			(at 195.58 134.62 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "e058a647-b9c7-4002-a0b1-402702245851")
+		)
+		(instances
+			(project "esp32-c6-motion-light"
+				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
+					(reference "#PWR021")
 					(unit 1)
 				)
 			)
@@ -5576,7 +6010,7 @@
 	)
 	(symbol
 		(lib_id "power:-BATT")
-		(at 193.04 111.76 180)
+		(at 195.58 116.84 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -5587,7 +6021,7 @@
 		(fields_autoplaced yes)
 		(uuid "969a64c7-c6ab-4489-828c-aa84d62a4ebc")
 		(property "Reference" "#PWR014"
-			(at 193.04 107.95 0)
+			(at 195.58 113.03 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5598,7 +6032,7 @@
 			)
 		)
 		(property "Value" "-BATT"
-			(at 193.04 116.84 0)
+			(at 195.58 121.92 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5608,7 +6042,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 193.04 111.76 0)
+			(at 195.58 116.84 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5619,7 +6053,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 193.04 111.76 0)
+			(at 195.58 116.84 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5630,7 +6064,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"-BATT\""
-			(at 193.04 111.76 0)
+			(at 195.58 116.84 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5653,8 +6087,8 @@
 		)
 	)
 	(symbol
-		(lib_id "power:+BATT")
-		(at 193.04 105.41 0)
+		(lib_id "Switch:SW_SPST")
+		(at 195.58 107.95 90)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -5662,30 +6096,32 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(uuid "aaae59a0-718a-46b9-b9cb-64f192434586")
-		(property "Reference" "#PWR013"
-			(at 193.04 109.22 0)
-			(hide yes)
+		(fields_autoplaced yes)
+		(uuid "9b4b0de3-f9ad-4b7c-85d0-db163a062e7e")
+		(property "Reference" "SW1"
+			(at 196.85 106.6799 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify right)
 			)
 		)
-		(property "Value" "+BATT"
-			(at 192.024 100.33 0)
+		(property "Value" "SW_SPST"
+			(at 196.85 109.2199 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify right)
 			)
 		)
-		(property "Footprint" ""
-			(at 193.04 105.41 0)
+		(property "Footprint" "Button_Switch_SMD:SW_SPDT_CK_JS102011SAQN"
+			(at 195.58 107.95 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5696,7 +6132,87 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 193.04 105.41 0)
+			(at 195.58 107.95 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Single Pole Single Throw (SPST) switch"
+			(at 195.58 107.95 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "2"
+			(uuid "23831825-acb2-4097-a8a0-36be46ef4ff9")
+		)
+		(pin "1"
+			(uuid "86cd1cf2-2ff6-4d06-b25f-bcf7e6a24e37")
+		)
+		(instances
+			(project "esp32-c6-motion-light"
+				(path "/bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
+					(reference "SW1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+BATT")
+		(at 195.58 102.87 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "aaae59a0-718a-46b9-b9cb-64f192434586")
+		(property "Reference" "#PWR013"
+			(at 195.58 106.68 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "+BATT"
+			(at 194.564 97.79 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 195.58 102.87 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 195.58 102.87 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5707,7 +6223,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+BATT\""
-			(at 193.04 105.41 0)
+			(at 195.58 102.87 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5840,7 +6356,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_1.00mm:PinHeader_1x03_P1.00mm_Vertical"
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
 			(at 25.4 48.26 0)
 			(hide yes)
 			(show_name no)
@@ -6315,7 +6831,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_1.00mm:PinHeader_1x03_P1.00mm_Vertical"
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
 			(at 24.13 116.84 0)
 			(hide yes)
 			(show_name no)
