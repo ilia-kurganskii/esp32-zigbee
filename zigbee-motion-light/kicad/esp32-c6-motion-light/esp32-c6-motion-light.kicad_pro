@@ -657,7 +657,7 @@
         "uuid": "bcb0ed04-b87c-4a26-8c10-b5d917d387e1"
       }
     ],
-    "used_designators": "LED1,U1,PIR2",
+    "used_designators": "",
     "variants": []
   },
   "sheets": [

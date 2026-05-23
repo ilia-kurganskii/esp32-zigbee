@@ -76,9 +76,9 @@
 		)
 		(symbol "LED_CONNECTOR_1_1"
 			(pin power_in line
-				(at 6.35 1.27 180)
+				(at 6.35 -3.81 180)
 				(length 2.54)
-				(name "VCC"
+				(name "GND"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -112,9 +112,9 @@
 				)
 			)
 			(pin power_in line
-				(at 6.35 -3.81 180)
+				(at 6.35 1.27 180)
 				(length 2.54)
-				(name "GND"
+				(name "VCC"
 					(effects
 						(font
 							(size 1.27 1.27)

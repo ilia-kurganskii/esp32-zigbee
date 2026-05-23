@@ -14,7 +14,7 @@
 #define ED_AGING_TIMEOUT                ESP_ZB_ED_AGING_TIMEOUT_64MIN        /* aging timeout of device */
 #define ED_KEEP_ALIVE                   3000                                 /* 3000 millisecond */
 #define HA_ESP_MOTION_LIGHT_ENDPOINT    10                                   /* esp motion light device endpoint */
-#define ESP_ZB_PRIMARY_CHANNEL_MASK     11 /* Zigbee primary channel mask use in the example */
+#define ESP_ZB_PRIMARY_CHANNEL_MASK     25 /* Zigbee primary channel (bit mask: 1 << channel) */
 
 /* Basic manufacturer information */
 #define ESP_MANUFACTURER_NAME "\x09""ESPRESSIF"      /* Customized manufacturer name */

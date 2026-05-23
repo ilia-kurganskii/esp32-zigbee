@@ -68,3 +68,21 @@ void motion_driver_configure_deep_sleep_wakeup(void)
 
     ESP_LOGI(TAG, "Deep sleep wake-up configured on GPIO %d", MOTION_SENSOR_GPIO);
 }
+
+void motion_driver_wait_until_clear(uint32_t timeout_ms)
+{
+    if (!motion_driver_get_state()) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Waiting for PIR to clear (timeout %lu ms)", (unsigned long)timeout_ms);
+    uint32_t elapsed = 0;
+    while (motion_driver_get_state() && elapsed < timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        elapsed += 50;
+    }
+
+    if (motion_driver_get_state()) {
+        ESP_LOGW(TAG, "PIR still active after %lu ms", (unsigned long)timeout_ms);
+    }
+}
