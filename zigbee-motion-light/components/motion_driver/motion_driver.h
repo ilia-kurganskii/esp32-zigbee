@@ -69,6 +69,13 @@ void motion_driver_set_callback(motion_callback_t callback);
  */
 void motion_driver_configure_deep_sleep_wakeup(void);
 
+/**
+ * @brief Block until PIR reads inactive, or timeout expires.
+ *
+ * Avoids entering deep sleep while GPIO wake is already asserted (instant wake).
+ */
+void motion_driver_wait_until_clear(uint32_t timeout_ms);
+
 #ifdef __cplusplus
 }
 #endif

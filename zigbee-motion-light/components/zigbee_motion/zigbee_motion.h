@@ -19,6 +19,9 @@ extern "C" {
 /* Motion light endpoint */
 #define MOTION_LIGHT_ENDPOINT   10
 
+/* Zigbee RF channel (11–26); primary scan mask is (1 << channel) */
+#define ESP_ZB_PRIMARY_CHANNEL  25
+
 /**
  * @brief Initialize Zigbee motion light component.
  *

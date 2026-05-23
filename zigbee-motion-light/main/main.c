@@ -31,14 +31,23 @@ static const char *TAG = "MOTION_LIGHT";
 
 #define WAKE_ANIM_DONE_BIT  BIT0
 #define WAKE_ZB_READY_BIT   BIT1
-#define WAKE_ALL_BITS       (WAKE_ANIM_DONE_BIT | WAKE_ZB_READY_BIT)
+
+/* Cosmetic strip may finish before occupancy is sent; only ZB gates sleep. */
+#define ANIM_GRACE_AFTER_ZB_MS  500
 
 /* ───────────────────── Deep Sleep ───────────────────── */
 
 static void enter_deep_sleep(void)
 {
+    /* Animation uses the same RMT strip; stop it before touching LEDs for sleep. */
+    light_animation_deinit();
+    vTaskDelay(pdMS_TO_TICKS(20));
+
     link_status_led_off();
     light_driver_set_power(LIGHT_DEFAULT_OFF);
+
+    /* If PIR is still HIGH, GPIO wake fires immediately and looks like no sleep. */
+    motion_driver_wait_until_clear(2500);
 
     motion_driver_configure_deep_sleep_wakeup();
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIMER_INTERVAL_SEC * 1000000ULL));
@@ -85,9 +94,20 @@ void app_main(void)
         return;
     }
 
-    xEventGroupWaitBits(wake_events, WAKE_ALL_BITS, pdFALSE, pdTRUE, portMAX_DELAY);
+    ESP_LOGI(TAG, "Supervisor waiting for occupancy track (Zigbee)");
+    xEventGroupWaitBits(wake_events, WAKE_ZB_READY_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "Both tracks ready (bits 0x%lx), entering deep sleep",
-             (unsigned long)xEventGroupGetBits(wake_events));
+    EventBits_t bits = xEventGroupGetBits(wake_events);
+    ESP_LOGI(TAG, "Occupancy track ready (bits 0x%lx)", (unsigned long)bits);
+
+    if ((bits & WAKE_ANIM_DONE_BIT) == 0) {
+        ESP_LOGI(TAG, "Waiting up to %d ms for animation track", ANIM_GRACE_AFTER_ZB_MS);
+        xEventGroupWaitBits(wake_events, WAKE_ANIM_DONE_BIT, pdFALSE, pdTRUE,
+                            pdMS_TO_TICKS(ANIM_GRACE_AFTER_ZB_MS));
+        bits = xEventGroupGetBits(wake_events);
+    }
+
+    ESP_LOGI(TAG, "Wake cycle complete (bits 0x%lx), entering deep sleep",
+             (unsigned long)bits);
     enter_deep_sleep();
 }

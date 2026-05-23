@@ -30,7 +30,8 @@ static void animation_signal_done(void)
 {
     if (s_wake_events != NULL) {
         xEventGroupSetBits(s_wake_events, s_done_bit);
-        ESP_LOGI(TAG, "Animation track ready");
+        ESP_LOGI(TAG, "Animation track ready (bits 0x%lx)",
+                 (unsigned long)xEventGroupGetBits(s_wake_events));
     } else {
         ESP_LOGE(TAG, "s_wake_events is NULL");
     }
@@ -77,18 +78,29 @@ static void led_phase_out_animation(void)
     }
 }
 
+static void animation_task_end(void)
+{
+    s_animation_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
 static void animation_task(void *pvParameters)
 {
     (void)pvParameters;
 
     ESP_LOGI(TAG, "Animation task started");
 
+    /* PIR (AM312) needs a moment after GPIO wake before the level is stable. */
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     if (!motion_driver_get_state()) {
-        ESP_LOGI(TAG, "No motion, animation skipped");
+        ESP_LOGI(TAG, "No motion after settle, animation skipped");
         animation_signal_done();
-        vTaskDelete(NULL);
+        animation_task_end();
         return;
     }
+
+    ESP_LOGI(TAG, "Motion detected, running strip animation");
 
     while (motion_driver_get_state()) {
         if (!led_active_animation()) {
@@ -96,14 +108,16 @@ static void animation_task(void *pvParameters)
         }
     }
 
+    /* Unblock sleep before cosmetic phase-out (strip may be cut off by deep sleep). */
+    animation_signal_done();
+
     if (!motion_driver_get_state()) {
         ESP_LOGI(TAG, "Motion cleared, phase out");
         led_phase_out_animation();
     }
 
-    animation_signal_done();
     ESP_LOGI(TAG, "Animation task finished");
-    vTaskDelete(NULL);
+    animation_task_end();
 }
 
 TaskHandle_t light_animation_init(EventGroupHandle_t wake_events, EventBits_t done_bit)
@@ -126,11 +140,14 @@ TaskHandle_t light_animation_init(EventGroupHandle_t wake_events, EventBits_t do
 
 void light_animation_deinit(void)
 {
-    if (s_animation_task_handle) {
+    TaskHandle_t task = s_animation_task_handle;
+    s_animation_task_handle = NULL;
+
+    if (task != NULL) {
         ESP_LOGI(TAG, "Stopping animation task");
-        vTaskDelete(s_animation_task_handle);
-        s_animation_task_handle = NULL;
+        vTaskDelete(task);
     }
+
     s_wake_events = NULL;
     s_done_bit = 0;
 }

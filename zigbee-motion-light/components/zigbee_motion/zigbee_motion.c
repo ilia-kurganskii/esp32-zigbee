@@ -61,13 +61,17 @@ static void try_signal_wake_ready(void)
 {
     if (s_wake_events != NULL && s_joined && !s_pending_valid && s_zigbee_finished) {
         xEventGroupSetBits(s_wake_events, s_ready_bit);
-        ESP_LOGI(TAG, "Zigbee track ready");
+        ESP_LOGI(TAG, "Zigbee track ready (bits 0x%lx)",
+                 (unsigned long)xEventGroupGetBits(s_wake_events));
     }
 }
 
 
 static void zigbee_motion_mark_joined(void)
 {
+    if (s_joined) {
+        return;
+    }
     s_joined = true;
     link_status_led_set_joined();
     flush_pending_occupancy();
@@ -202,10 +206,17 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 zigbee_motion_mark_joined();
             }
         } else {
-            ESP_LOGW(TAG, "%s failed with status: %s, retrying",
+            ESP_LOGW(TAG, "%s failed with status: %s",
                      esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
-            esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
-                                   ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
+            if (sig_type == ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT && !esp_zb_bdb_is_factory_new()) {
+                ESP_LOGW(TAG, "Silent rejoin failed, falling back to network steering");
+                link_status_led_set_steering();
+                esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                       ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
+            } else {
+                esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                       ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
+            }
         }
         break;
 
@@ -292,7 +303,7 @@ static void esp_zb_task(void *pvParameters)
 
     esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
-    esp_zb_set_primary_network_channel_set(1 << 11);
+    esp_zb_set_primary_network_channel_set(1 << ESP_ZB_PRIMARY_CHANNEL);
 
     ESP_ERROR_CHECK(esp_zb_start(false));
     esp_zb_stack_main_loop();
