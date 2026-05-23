@@ -13,6 +13,7 @@
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "esp_zigbee_core.h"
 #include "ha/esp_zigbee_ha_standard.h"
 #include "zigbee_motion.h"
@@ -48,10 +49,21 @@ static bool s_zigbee_finished = false;
 static TaskHandle_t s_zigbee_task_handle = NULL;
 static TaskHandle_t s_monitor_task_handle = NULL;
 static bool s_motion_prev = false;
+static EventGroupHandle_t s_wake_events = NULL;
+static EventBits_t s_ready_bit = 0;
 
 static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe);
 static void flush_pending_occupancy(void);
 static void monitor_task(void *pvParameters);
+static void try_signal_wake_ready(void);
+
+static void try_signal_wake_ready(void)
+{
+    if (s_wake_events != NULL && s_joined && !s_pending_valid && s_zigbee_finished) {
+        xEventGroupSetBits(s_wake_events, s_ready_bit);
+        ESP_LOGI(TAG, "Zigbee track ready");
+    }
+}
 
 
 static void zigbee_motion_mark_joined(void)
@@ -78,6 +90,7 @@ static void flush_pending_occupancy(void)
     esp_err_t r = send_occupancy_to_network(occ, true);
     if (r == ESP_OK) {
         s_pending_valid = false;
+        try_signal_wake_ready();
         return;
     }
     ESP_LOGW(TAG, "flush pending occupancy failed, keeping intent for retry");
@@ -92,11 +105,16 @@ static void monitor_task(void *pvParameters)
     s_motion_prev = motion_driver_get_state();
     ESP_LOGI(TAG, "Initial motion state: %s", s_motion_prev ? "DETECTED" : "CLEARED");
 
+    if (s_motion_prev) {
+        send_occupancy_to_network(true, true);
+    }
+
     /* If motion is already false, send report and finish immediately */
     if (!s_motion_prev) {
         ESP_LOGI(TAG, "Motion already cleared, sending report and finishing");
         send_occupancy_to_network(false, true);
         s_zigbee_finished = true;
+        try_signal_wake_ready();
         ESP_LOGI(TAG, "Monitor task finished (motion never detected)");
         vTaskDelete(NULL);
         return;
@@ -114,6 +132,7 @@ static void monitor_task(void *pvParameters)
             if (!motion_current) {
                 ESP_LOGI(TAG, "Motion cleared, setting zigbee finished flag");
                 s_zigbee_finished = true;
+                try_signal_wake_ready();
                 break;
             }
         }
@@ -174,9 +193,14 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Device started up in%s factory-reset mode",
                      esp_zb_bdb_is_factory_new() ? "" : " non");
-            ESP_LOGI(TAG, "Start network steering");
-            link_status_led_set_steering();
-            esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+            if (esp_zb_bdb_is_factory_new()) {
+                ESP_LOGI(TAG, "Start network steering");
+                link_status_led_set_steering();
+                esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+            } else {
+                ESP_LOGI(TAG, "Rejoined from NVRAM");
+                zigbee_motion_mark_joined();
+            }
         } else {
             ESP_LOGW(TAG, "%s failed with status: %s, retrying",
                      esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
@@ -268,7 +292,7 @@ static void esp_zb_task(void *pvParameters)
 
     esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
-    esp_zb_set_primary_network_channel_set(ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK);
+    esp_zb_set_primary_network_channel_set(1 << 11);
 
     ESP_ERROR_CHECK(esp_zb_start(false));
     esp_zb_stack_main_loop();
@@ -276,10 +300,12 @@ static void esp_zb_task(void *pvParameters)
 
 /* ───────────────────── Public API ───────────────────── */
 
-TaskHandle_t zigbee_motion_init(void)
+TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t ready_bit)
 {
     ESP_LOGI(TAG, "Initializing Zigbee motion light component");
 
+    s_wake_events = wake_events;
+    s_ready_bit = ready_bit;
     s_joined = false;
     s_pending_valid = false;
     s_pending_occupied = false;

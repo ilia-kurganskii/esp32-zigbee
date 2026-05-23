@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,9 +25,11 @@ extern "C" {
  * This function initializes the Zigbee stack, creates the necessary clusters
  * (Basic, Identify, On/Off, Occupancy Sensing), and starts the Zigbee task.
  *
+ * @param wake_events Event group to signal when the Zigbee track is ready for sleep
+ * @param ready_bit   Bit to set when joined, occupancy applied, and monitor done
  * @return Task handle on success, NULL on failure
  */
-TaskHandle_t zigbee_motion_init(void);
+TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t ready_bit);
 
 
 /**

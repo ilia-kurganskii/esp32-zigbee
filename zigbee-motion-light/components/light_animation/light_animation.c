@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "light_animation.h"
 #include "light_driver.h"
 #include "motion_driver.h"
@@ -21,27 +22,46 @@ static const char *TAG = "LIGHT_ANIMATION";
 /* Motion-strip animation uses LEDs 1..N-1; LED 0 is reserved for Zigbee status. */
 #define STRIP_LED_FIRST_INDEX        1
 
-static bool s_animation_finished = false;
 static TaskHandle_t s_animation_task_handle = NULL;
+static EventGroupHandle_t s_wake_events = NULL;
+static EventBits_t s_done_bit = 0;
 
-static void led_active_animation(void)
+static void animation_signal_done(void)
+{
+    if (s_wake_events != NULL) {
+        xEventGroupSetBits(s_wake_events, s_done_bit);
+        ESP_LOGI(TAG, "Animation track ready");
+    } else {
+        ESP_LOGE(TAG, "s_wake_events is NULL");
+    }
+}
+
+/* Returns false if motion cleared during the sweep. */
+static bool led_active_animation(void)
 {
     uint8_t r = 255;
     uint8_t g = 180;
     uint8_t b = 0;
 
     for (int led = STRIP_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
+        if (!motion_driver_get_state()) {
+            return false;
+        }
         light_driver_set_pixel(led, r, g, b);
         vTaskDelay(pdMS_TO_TICKS(50));
         light_driver_set_pixel(led, 0, 0, 0);
     }
     for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led > STRIP_LED_FIRST_INDEX; led--) {
+        if (!motion_driver_get_state()) {
+            return false;
+        }
         light_driver_set_pixel(led, r, g, b);
         vTaskDelay(pdMS_TO_TICKS(50));
         light_driver_set_pixel(led, 0, 0, 0);
     }
 
     light_driver_set_pixel(STRIP_LED_FIRST_INDEX, r, g, b);
+    return true;
 }
 
 static void led_phase_out_animation(void)
@@ -63,44 +83,38 @@ static void animation_task(void *pvParameters)
 
     ESP_LOGI(TAG, "Animation task started");
 
-    bool motion_detected = motion_driver_get_state();
-    ESP_LOGI(TAG, "Initial motion state: %s", motion_detected ? "DETECTED" : "CLEARED");
-
-    /* If motion is already false, finish immediately */
-    if (!motion_detected) {
-        ESP_LOGI(TAG, "Motion already cleared, finishing animation task");
-        s_animation_finished = true;
-        ESP_LOGI(TAG, "Animation task finished (motion never detected)");
+    if (!motion_driver_get_state()) {
+        ESP_LOGI(TAG, "No motion, animation skipped");
+        animation_signal_done();
         vTaskDelete(NULL);
         return;
     }
 
-    do {
-        led_active_animation();
-
-        motion_detected = motion_driver_get_state();
-        if (motion_detected) {
-            ESP_LOGI(TAG, "Motion still detected, looping animation");
-        } else {
-            ESP_LOGI(TAG, "No motion detected, starting phase out");
-            led_phase_out_animation();
+    while (motion_driver_get_state()) {
+        if (!led_active_animation()) {
             break;
         }
-    } while (motion_detected);
+    }
 
-    s_animation_finished = true;
+    if (!motion_driver_get_state()) {
+        ESP_LOGI(TAG, "Motion cleared, phase out");
+        led_phase_out_animation();
+    }
+
+    animation_signal_done();
     ESP_LOGI(TAG, "Animation task finished");
     vTaskDelete(NULL);
 }
 
-TaskHandle_t light_animation_init(void)
+TaskHandle_t light_animation_init(EventGroupHandle_t wake_events, EventBits_t done_bit)
 {
     ESP_LOGI(TAG, "Initializing light animation component");
 
-    s_animation_finished = false;
+    s_wake_events = wake_events;
+    s_done_bit = done_bit;
     s_animation_task_handle = NULL;
 
-    BaseType_t ret = xTaskCreate(animation_task, "light_anim", 4096, NULL, 5, &s_animation_task_handle);
+    BaseType_t ret = xTaskCreate(animation_task, "light_anim", 4096, NULL, 3, &s_animation_task_handle);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create animation task");
         return NULL;
@@ -110,11 +124,6 @@ TaskHandle_t light_animation_init(void)
     return s_animation_task_handle;
 }
 
-bool light_animation_is_finished(void)
-{
-    return s_animation_finished;
-}
-
 void light_animation_deinit(void)
 {
     if (s_animation_task_handle) {
@@ -122,5 +131,6 @@ void light_animation_deinit(void)
         vTaskDelete(s_animation_task_handle);
         s_animation_task_handle = NULL;
     }
-    s_animation_finished = false;
+    s_wake_events = NULL;
+    s_done_bit = 0;
 }

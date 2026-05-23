@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,16 +19,11 @@ extern "C" {
  * This function creates a task that monitors the motion driver state
  * and runs LED animations while motion is detected.
  *
+ * @param wake_events Event group to signal on completion (may be NULL)
+ * @param done_bit    Bit to set when the animation track is done
  * @return Task handle on success, NULL on failure
  */
-TaskHandle_t light_animation_init(void);
-
-/**
- * @brief Check if the animation task has finished.
- *
- * @return true if animation task is finished, false otherwise
- */
-bool light_animation_is_finished(void);
+TaskHandle_t light_animation_init(EventGroupHandle_t wake_events, EventBits_t done_bit);
 
 /**
  * @brief Stop and deinitialize the light animation component.

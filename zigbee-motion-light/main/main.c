@@ -14,9 +14,9 @@
 
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "nvs_flash.h"
 #include "light_driver.h"
 #include "motion_driver.h"
@@ -28,6 +28,10 @@ static const char *TAG = "MOTION_LIGHT";
 
 /* Deep sleep periodic timer (occupancy heartbeat). */
 #define DEEP_SLEEP_TIMER_INTERVAL_SEC   (3 * 60)
+
+#define WAKE_ANIM_DONE_BIT  BIT0
+#define WAKE_ZB_READY_BIT   BIT1
+#define WAKE_ALL_BITS       (WAKE_ANIM_DONE_BIT | WAKE_ZB_READY_BIT)
 
 /* ───────────────────── Deep Sleep ───────────────────── */
 
@@ -63,34 +67,27 @@ void app_main(void)
                              (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) ? "UNDEFINED" : "OTHER";
     ESP_LOGI(TAG, "Wakeup: %s", wakeup_str);
 
-    TaskHandle_t zigbee_task_handle = zigbee_motion_init();
+    EventGroupHandle_t wake_events = xEventGroupCreate();
+    if (wake_events == NULL) {
+        ESP_LOGE(TAG, "Failed to create wake event group");
+        return;
+    }
+
+    TaskHandle_t zigbee_task_handle = zigbee_motion_init(wake_events, WAKE_ZB_READY_BIT);
     if (zigbee_task_handle == NULL) {
         ESP_LOGE(TAG, "Failed to initialize Zigbee");
         return;
     }
 
-    TaskHandle_t animate_task_handle = light_animation_init();
+    TaskHandle_t animate_task_handle = light_animation_init(wake_events, WAKE_ANIM_DONE_BIT);
     if (animate_task_handle == NULL) {
         ESP_LOGE(TAG, "Failed to initialize animation");
         return;
     }
 
-    bool is_animate_task_finished = false;
-    bool is_zigbee_joined = false;
-    int64_t last_log_us = esp_timer_get_time();
-    while (!is_animate_task_finished || !is_zigbee_joined) {
-        is_animate_task_finished = light_animation_is_finished();
-        is_zigbee_joined = zigbee_motion_is_joined();
-        
-        int64_t now_us = esp_timer_get_time();
-        if (now_us - last_log_us >= 1000000) {
-            ESP_LOGI(TAG, "Waiting for tasks... animation:%d zigbee_joined:%d", is_animate_task_finished, is_zigbee_joined);
-            last_log_us = now_us;
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    xEventGroupWaitBits(wake_events, WAKE_ALL_BITS, pdFALSE, pdTRUE, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "Animation task finished, entering deep sleep");
+    ESP_LOGI(TAG, "Both tracks ready (bits 0x%lx), entering deep sleep",
+             (unsigned long)xEventGroupGetBits(wake_events));
     enter_deep_sleep();
 }
