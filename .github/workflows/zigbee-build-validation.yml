@@ -236,11 +236,65 @@ jobs:
         idf.py build
         echo "✅ Zigbee WTW build successful for ${{ matrix.target }}"
 
+  build-zigbee-motion-light:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:latest
+    strategy:
+      matrix:
+        target: [esp32c6]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for Zigbee Motion Light changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^zigbee-motion-light/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^zigbee-motion-light/' || true)
+        fi
+
+        if [ -n "$CHANGED" ]; then
+          echo "zigbee-changed=true" >> $GITHUB_OUTPUT
+          echo "🔍 Zigbee Motion Light changes detected:"
+          echo "$CHANGED"
+        else
+          echo "zigbee-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Check for Components changes
+      id: comp-changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep -E '^components/' || true)
+        else
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^components/' || true)
+        fi
+
+        if [ -n "$CHANGED" ]; then
+          echo "components-changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "components-changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build Zigbee Motion Light
+      if: steps.changes.outputs.zigbee-changed == 'true' || steps.comp-changes.outputs.components-changed == 'true'
+      working-directory: ./zigbee-motion-light
+      run: |
+        idf.py set-target ${{ matrix.target }}
+        idf.py fullclean
+        idf.py build
+        echo "✅ Zigbee Motion Light build successful for ${{ matrix.target }}"
+
   build-summary:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [build-zigbee-co2, build-zigbee-light, build-zigbee-remote, build-zigbee-wtw]
+    needs: [build-zigbee-co2, build-zigbee-light, build-zigbee-remote, build-zigbee-wtw, build-zigbee-motion-light]
     steps:
     - name: Build Summary
       run: |
@@ -251,6 +305,7 @@ jobs:
         echo "- Zigbee Light: ${{ needs.build-zigbee-light.result }}" >> $GITHUB_STEP_SUMMARY
         echo "- Zigbee Remote: ${{ needs.build-zigbee-remote.result }}" >> $GITHUB_STEP_SUMMARY
         echo "- Zigbee WTW: ${{ needs.build-zigbee-wtw.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Zigbee Motion Light: ${{ needs.build-zigbee-motion-light.result }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Validation Target" >> $GITHUB_STEP_SUMMARY
         echo "- ESP32C6 (recommended for Zigbee)" >> $GITHUB_STEP_SUMMARY
