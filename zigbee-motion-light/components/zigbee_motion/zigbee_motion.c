@@ -56,6 +56,50 @@ static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe);
 static void flush_pending_occupancy(void);
 static void monitor_task(void *pvParameters);
 static void try_signal_wake_ready(void);
+static bool zigbee_motion_network_is_valid(void);
+static void zigbee_motion_log_nvram_snapshot(const char *context);
+static void zigbee_motion_lock_channel_from_stack(void);
+
+static bool zigbee_motion_network_is_valid(void)
+{
+    if (!esp_zb_bdb_dev_joined()) {
+        return false;
+    }
+
+    uint16_t addr = esp_zb_get_short_address();
+    uint16_t pan = esp_zb_get_pan_id();
+    return addr != 0 && addr != 0xFFFE && addr != 0xFFFF &&
+           pan != 0 && pan != 0xFFFF;
+}
+
+static void zigbee_motion_log_nvram_snapshot(const char *context)
+{
+    esp_zb_ieee_addr_t ext_pan;
+
+    esp_zb_get_extended_pan_id(ext_pan);
+    ESP_LOGI(TAG,
+             "NVRAM snapshot [%s]: factory_new=%d dev_joined=%d valid=%d "
+             "PAN=0x%04hx Ch=%u Addr=0x%04hx ExtPAN=%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
+             context,
+             esp_zb_bdb_is_factory_new(),
+             esp_zb_bdb_dev_joined(),
+             zigbee_motion_network_is_valid(),
+             esp_zb_get_pan_id(),
+             esp_zb_get_current_channel(),
+             esp_zb_get_short_address(),
+             ext_pan[7], ext_pan[6], ext_pan[5], ext_pan[4],
+             ext_pan[3], ext_pan[2], ext_pan[1], ext_pan[0]);
+}
+
+static void zigbee_motion_lock_channel_from_stack(void)
+{
+    uint8_t ch = esp_zb_get_current_channel();
+
+    if (ch >= 11 && ch <= 26) {
+        esp_zb_set_primary_network_channel_set(1 << ch);
+        esp_zb_set_secondary_network_channel_set(0);
+    }
+}
 
 static void try_signal_wake_ready(void)
 {
@@ -195,39 +239,67 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     case ESP_ZB_BDB_SIGNAL_DEVICE_FIRST_START:
     case ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT:
         if (err_status == ESP_OK) {
+            const char *boot_ctx = (sig_type == ESP_ZB_BDB_SIGNAL_DEVICE_FIRST_START)
+                                       ? "DEVICE_FIRST_START"
+                                       : "DEVICE_REBOOT";
+            zigbee_motion_log_nvram_snapshot(boot_ctx);
             ESP_LOGI(TAG, "Device started up in%s factory-reset mode",
                      esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network steering");
                 link_status_led_set_steering();
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-            } else {
+            } else if (zigbee_motion_network_is_valid()) {
                 ESP_LOGI(TAG, "Rejoined from NVRAM");
+                zigbee_motion_lock_channel_from_stack();
                 zigbee_motion_mark_joined();
+            } else {
+                ESP_LOGW(TAG, "NVRAM data present but network invalid, falling back to steering");
+                link_status_led_set_steering();
+                esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             }
         } else {
-            ESP_LOGW(TAG, "%s failed with status: %s",
-                     esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
-            if (sig_type == ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT && !esp_zb_bdb_is_factory_new()) {
-                ESP_LOGW(TAG, "Silent rejoin failed, falling back to network steering");
-                link_status_led_set_steering();
-                esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
-                                       ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
+            zigbee_motion_log_nvram_snapshot(esp_zb_zdo_signal_to_string(sig_type));
+            if (zigbee_motion_network_is_valid()) {
+                ESP_LOGI(TAG, "Rejoined from NVRAM (%s reported %s)",
+                         esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
+                zigbee_motion_lock_channel_from_stack();
+                zigbee_motion_mark_joined();
             } else {
-                esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
-                                       ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
+                ESP_LOGW(TAG, "%s failed with status: %s",
+                         esp_zb_zdo_signal_to_string(sig_type), esp_err_to_name(err_status));
+                if (sig_type == ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT && !esp_zb_bdb_is_factory_new()) {
+                    ESP_LOGW(TAG, "Rejoin in progress, retrying initialization");
+                    esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                           ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
+                } else {
+                    esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                           ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
+                }
             }
         }
         break;
 
     case ESP_ZB_BDB_SIGNAL_STEERING:
-        if (err_status == ESP_OK) {
-            esp_zb_ieee_addr_t extended_pan_id;
-            esp_zb_get_extended_pan_id(extended_pan_id);
+        if (s_joined) {
+            ESP_LOGD(TAG, "Ignoring steering signal, already joined");
+            break;
+        }
+        if (err_status == ESP_OK && zigbee_motion_network_is_valid()) {
+            zigbee_motion_log_nvram_snapshot("STEERING join");
+            zigbee_motion_lock_channel_from_stack();
             ESP_LOGI(TAG, "Joined network (PAN: 0x%04hx, Ch:%d, Addr: 0x%04hx)",
                      esp_zb_get_pan_id(), esp_zb_get_current_channel(),
                      esp_zb_get_short_address());
             zigbee_motion_mark_joined();
+        } else if (err_status == ESP_OK) {
+            zigbee_motion_log_nvram_snapshot("STEERING invalid");
+            ESP_LOGW(TAG, "Steering OK but not on network (PAN: 0x%04hx, Ch:%d, Addr: 0x%04hx, joined=%d)",
+                     esp_zb_get_pan_id(), esp_zb_get_current_channel(),
+                     esp_zb_get_short_address(), esp_zb_bdb_dev_joined());
+            link_status_led_set_steering();
+            esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                   ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         } else {
             ESP_LOGW(TAG, "Network steering failed: %s", esp_err_to_name(err_status));
             link_status_led_set_steering();

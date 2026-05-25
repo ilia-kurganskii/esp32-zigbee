@@ -4,6 +4,8 @@
 **Date:** 2026-05-22  
 **Goal:** Collect everything relevant to rejoining the Zigbee network as quickly as possible after `esp_deep_sleep_start()` wake (full chip reset).
 
+> **Implementation status (2026-05):** The fixes described below are implemented in `zigbee_motion.c`. For operational docs, log examples, and test steps, see **[nvram-rejoin-and-diagnostics.md](./nvram-rejoin-and-diagnostics.md)**.
+
 ---
 
 ## Executive summary
