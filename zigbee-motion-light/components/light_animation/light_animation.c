@@ -16,6 +16,7 @@
 #include "light_animation.h"
 #include "light_driver.h"
 #include "motion_driver.h"
+#include "zigbee_motion.h"
 
 static const char *TAG = "LIGHT_ANIMATION";
 
@@ -100,9 +101,16 @@ static void animation_task(void *pvParameters)
         return;
     }
 
+    if (!zigbee_motion_light_enabled()) {
+        ESP_LOGI(TAG, "Light disabled via On/Off, animation skipped");
+        animation_signal_done();
+        animation_task_end();
+        return;
+    }
+
     ESP_LOGI(TAG, "Motion detected, running strip animation");
 
-    while (motion_driver_get_state()) {
+    while (motion_driver_get_state() && zigbee_motion_light_enabled()) {
         if (!led_active_animation()) {
             break;
         }

@@ -32,9 +32,6 @@ static const char *TAG = "MOTION_LIGHT";
 #define WAKE_ANIM_DONE_BIT  BIT0
 #define WAKE_ZB_READY_BIT   BIT1
 
-/* Cosmetic strip may finish before occupancy is sent; only ZB gates sleep. */
-#define ANIM_GRACE_AFTER_ZB_MS  500
-
 /* ───────────────────── Deep Sleep ───────────────────── */
 
 static void enter_deep_sleep(void)
@@ -94,20 +91,9 @@ void app_main(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Supervisor waiting for occupancy track (Zigbee)");
+    ESP_LOGI(TAG, "Supervisor waiting for occupancy report response (Zigbee)");
     xEventGroupWaitBits(wake_events, WAKE_ZB_READY_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
-    EventBits_t bits = xEventGroupGetBits(wake_events);
-    ESP_LOGI(TAG, "Occupancy track ready (bits 0x%lx)", (unsigned long)bits);
-
-    if ((bits & WAKE_ANIM_DONE_BIT) == 0) {
-        ESP_LOGI(TAG, "Waiting up to %d ms for animation track", ANIM_GRACE_AFTER_ZB_MS);
-        xEventGroupWaitBits(wake_events, WAKE_ANIM_DONE_BIT, pdFALSE, pdTRUE,
-                            pdMS_TO_TICKS(ANIM_GRACE_AFTER_ZB_MS));
-        bits = xEventGroupGetBits(wake_events);
-    }
-
-    ESP_LOGI(TAG, "Wake cycle complete (bits 0x%lx), entering deep sleep",
-             (unsigned long)bits);
+    ESP_LOGI(TAG, "Occupancy acknowledged, entering deep sleep");
     enter_deep_sleep();
 }
