@@ -22,15 +22,6 @@ extern "C" {
 /* Zigbee RF channel (11–26); primary scan mask is (1 << channel) */
 #define ESP_ZB_PRIMARY_CHANNEL  25
 
-/** Stay awake after join so Z2M can interview (ms). */
-#define ZIGBEE_MOTION_INTERVIEW_HOLD_MS   (120 * 1000)
-
-/** Extend hold when coordinator sends ZCL traffic (ms). */
-#define ZIGBEE_MOTION_INTERVIEW_EXTEND_MS (60 * 1000)
-
-/** Stay awake after leave / factory-new for re-pairing (ms). */
-#define ZIGBEE_MOTION_REPAIR_HOLD_MS      (5 * 60 * 1000)
-
 /**
  * @brief Initialize Zigbee motion light component.
  *
@@ -38,7 +29,7 @@ extern "C" {
  * (Basic, Identify, On/Off, Occupancy Sensing), and starts the Zigbee task.
  *
  * @param wake_events Event group to signal when the Zigbee track is ready for sleep
- * @param ready_bit   Bit to set when joined and occupancy report is acknowledged
+ * @param ready_bit   Bit to set when joined and occupancy report is queued
  * @return Task handle on success, NULL on failure
  */
 TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t ready_bit);
@@ -47,8 +38,8 @@ TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t read
 /**
  * @brief Send occupancy report to Zigbee network.
  *
- * When joined, updates the Occupancy Sensing cluster and sends a report to the
- * coordinator, waiting for the default response (or APS send OK on timeout).
+ * When joined, updates the Occupancy Sensing cluster and queues a report to the
+ * coordinator (fire-and-forget on the Zigbee stack thread).
  * When not yet joined, stores the latest requested state and flushes after join.
  *
  * @param occupied true if motion detected, false otherwise
@@ -75,19 +66,9 @@ bool zigbee_motion_is_joined(void);
 bool zigbee_motion_light_enabled(void);
 
 /**
- * @brief True while occupancy is queued before join or a report awaits coordinator response.
+ * @brief True while occupancy is queued before join.
  */
 bool zigbee_motion_occupancy_intent_pending(void);
-
-/**
- * @brief Milliseconds remaining in the post-leave / factory-new radio hold window.
- */
-uint32_t zigbee_motion_radio_hold_remaining_ms(void);
-
-/**
- * @brief Block until the radio hold window expires (leave / interview / re-pair).
- */
-void zigbee_motion_wait_radio_hold(void);
 
 #ifdef __cplusplus
 }

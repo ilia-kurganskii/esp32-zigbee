@@ -42,11 +42,6 @@ static const char *TAG = "ZIGBEE_MOTION";
 
 #define COORDINATOR_ADDR         0x0000
 #define COORDINATOR_ENDPOINT     1
-#define OCC_REPORT_TIMEOUT_MS    (60 * 1000)
-#define ZCL_CMD_REPORT_ATTRIBUTES 0x0a
-
-#define OCC_REPORT_ACK_BIT  BIT0
-#define OCC_REPORT_FAIL_BIT BIT1
 
 #define ON_OFF_NVS_NAMESPACE  "motion_lt"
 #define ON_OFF_NVS_KEY        "on_off"
@@ -64,17 +59,10 @@ static TaskHandle_t s_zigbee_task_handle = NULL;
 static TaskHandle_t s_monitor_task_handle = NULL;
 static EventGroupHandle_t s_wake_events = NULL;
 static EventBits_t s_ready_bit = 0;
-static EventGroupHandle_t s_report_events = NULL;
-static volatile bool s_report_waiting = false;
-static volatile bool s_report_aps_ok = false;
 static bool s_report_payload_occupied;
-static TickType_t s_radio_hold_deadline_tick;
 static bool s_light_enabled = true;
 
-static void zigbee_motion_arm_radio_hold_ms(uint32_t ms);
-static void zigbee_motion_sync_rx_hold_cb(uint8_t unused);
 static void zigbee_motion_mark_left(void);
-static void zigbee_motion_note_coordinator_activity(void);
 static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe);
 static void flush_pending_occupancy(void);
 static void monitor_task(void *pvParameters);
@@ -87,66 +75,6 @@ static void zigbee_motion_save_on_off_to_nvs(bool enabled);
 static void zigbee_motion_apply_on_off(bool enabled);
 static void zigbee_motion_sync_on_off_from_stack(void);
 static esp_err_t zigbee_motion_on_off_attr_handler(const esp_zb_zcl_set_attr_value_message_t *message);
-
-static void occupancy_report_complete(bool success)
-{
-    if (!s_report_waiting || s_report_events == NULL) {
-        return;
-    }
-
-    s_report_waiting = false;
-    xEventGroupSetBits(s_report_events, success ? OCC_REPORT_ACK_BIT : OCC_REPORT_FAIL_BIT);
-}
-
-static void occupancy_command_send_status_cb(esp_zb_zcl_command_send_status_message_t message)
-{
-    if (!s_report_waiting) {
-        return;
-    }
-
-    if (message.src_endpoint != MOTION_LIGHT_ENDPOINT ||
-        message.dst_endpoint != COORDINATOR_ENDPOINT ||
-        message.dst_addr.u.short_addr != COORDINATOR_ADDR) {
-        return;
-    }
-
-    if (message.status == ESP_OK) {
-        s_report_aps_ok = true;
-        return;
-    }
-
-    ESP_LOGW(TAG, "Occupancy report APS send failed: %s", esp_err_to_name(message.status));
-    occupancy_report_complete(false);
-}
-
-static esp_err_t wait_for_occupancy_report_response(void)
-{
-    EventBits_t bits = xEventGroupWaitBits(s_report_events,
-                                           OCC_REPORT_ACK_BIT | OCC_REPORT_FAIL_BIT,
-                                           pdTRUE,
-                                           pdFALSE,
-                                           pdMS_TO_TICKS(OCC_REPORT_TIMEOUT_MS));
-
-    if (bits & OCC_REPORT_ACK_BIT) {
-        ESP_LOGI(TAG, "Occupancy report acknowledged by coordinator");
-        return ESP_OK;
-    }
-
-    if (bits & OCC_REPORT_FAIL_BIT) {
-        ESP_LOGW(TAG, "Occupancy report rejected or failed");
-        return ESP_FAIL;
-    }
-
-    s_report_waiting = false;
-    if (s_report_aps_ok) {
-        ESP_LOGW(TAG, "No default response within %d ms; accepting APS send OK",
-                 OCC_REPORT_TIMEOUT_MS);
-        return ESP_OK;
-    }
-
-    ESP_LOGW(TAG, "Occupancy report response timeout (%d ms)", OCC_REPORT_TIMEOUT_MS);
-    return ESP_ERR_TIMEOUT;
-}
 
 static void occupancy_report_issue_cb(uint8_t param)
 {
@@ -161,7 +89,7 @@ static void occupancy_report_issue_cb(uint8_t param)
         &occupancy_value, false);
     if (attr_status != ESP_ZB_ZCL_STATUS_SUCCESS) {
         ESP_LOGW(TAG, "Set occupancy attribute failed: 0x%02x", attr_status);
-        occupancy_report_complete(false);
+        try_signal_wake_ready();
         return;
     }
 
@@ -179,8 +107,9 @@ static void occupancy_report_issue_cb(uint8_t param)
     esp_err_t ret = esp_zb_zcl_report_attr_cmd_req(&report_cmd);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Occupancy report request failed: %s", esp_err_to_name(ret));
-        occupancy_report_complete(false);
     }
+
+    try_signal_wake_ready();
 }
 
 static bool zigbee_motion_network_is_valid(void)
@@ -303,36 +232,10 @@ static esp_err_t zigbee_motion_on_off_attr_handler(const esp_zb_zcl_set_attr_val
     return ESP_OK;
 }
 
-static void zigbee_motion_sync_rx_hold_cb(uint8_t unused)
-{
-    (void)unused;
-    esp_zb_set_rx_on_when_idle(zigbee_motion_radio_hold_remaining_ms() > 0);
-}
-
-static void zigbee_motion_arm_radio_hold_ms(uint32_t ms)
-{
-    TickType_t now = xTaskGetTickCount();
-    TickType_t deadline = now + pdMS_TO_TICKS(ms);
-
-    if (s_radio_hold_deadline_tick == 0 ||
-        (int32_t)(deadline - s_radio_hold_deadline_tick) > 0) {
-        s_radio_hold_deadline_tick = deadline;
-        esp_zb_scheduler_alarm((esp_zb_callback_t)zigbee_motion_sync_rx_hold_cb, 0, 0);
-    }
-}
-
-static void zigbee_motion_note_coordinator_activity(void)
-{
-    if (s_joined) {
-        zigbee_motion_arm_radio_hold_ms(ZIGBEE_MOTION_INTERVIEW_EXTEND_MS);
-    }
-}
-
 static void zigbee_motion_mark_left(void)
 {
     s_joined = false;
     s_pending_valid = false;
-    s_report_waiting = false;
 
     if (s_monitor_task_handle != NULL) {
         vTaskDelete(s_monitor_task_handle);
@@ -350,7 +253,7 @@ static void zigbee_motion_mark_left(void)
 
 static void try_signal_wake_ready(void)
 {
-    if (s_wake_events != NULL && s_joined && !s_pending_valid && !s_report_waiting) {
+    if (s_wake_events != NULL && s_joined && !s_pending_valid) {
         xEventGroupSetBits(s_wake_events, s_ready_bit);
         ESP_LOGI(TAG, "Zigbee track ready (bits 0x%lx)",
                  (unsigned long)xEventGroupGetBits(s_wake_events));
@@ -386,7 +289,6 @@ static void flush_pending_occupancy(void)
     esp_err_t r = send_occupancy_to_network(occ, true);
     if (r == ESP_OK) {
         s_pending_valid = false;
-        try_signal_wake_ready();
         return;
     }
     ESP_LOGW(TAG, "flush pending occupancy failed, keeping intent for retry");
@@ -419,36 +321,25 @@ static void monitor_task(void *pvParameters)
 static esp_err_t send_occupancy_to_network(bool occupied, bool dedupe)
 {
     if (dedupe && s_last_occupancy_state == occupied) {
+        try_signal_wake_ready();
         return ESP_OK;
     }
 
-    if (!s_joined || s_report_events == NULL) {
+    if (!s_joined) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t ret;
-
     link_status_led_notify_occupancy_issued();
-
-    xEventGroupClearBits(s_report_events, OCC_REPORT_ACK_BIT | OCC_REPORT_FAIL_BIT);
-    s_report_aps_ok = false;
-    s_report_waiting = true;
     s_report_payload_occupied = occupied;
 
     esp_zb_lock_acquire(portMAX_DELAY);
     esp_zb_scheduler_alarm((esp_zb_callback_t)occupancy_report_issue_cb, 0, 0);
     esp_zb_lock_release();
 
-    ESP_LOGI(TAG, "Occupancy report queued (%s), waiting for response",
+    ESP_LOGI(TAG, "Occupancy report queued (%s)",
              occupied ? "OCCUPIED" : "UNOCCUPIED");
 
-    ret = wait_for_occupancy_report_response();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
     s_last_occupancy_state = occupied;
-    try_signal_wake_ready();
     return ESP_OK;
 }
 
@@ -483,7 +374,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             ESP_LOGI(TAG, "Device started up in%s factory-reset mode",
                      esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
-                zigbee_motion_arm_radio_hold_ms(ZIGBEE_MOTION_REPAIR_HOLD_MS);
                 ESP_LOGI(TAG, "Start network steering");
                 link_status_led_set_steering();
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
@@ -528,7 +418,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 ESP_LOGI(TAG, "ZDO Leave received");
             }
             zigbee_motion_mark_left();
-            zigbee_motion_arm_radio_hold_ms(ZIGBEE_MOTION_REPAIR_HOLD_MS);
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
                                    ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         } else if (err_status == ESP_OK) {
@@ -580,33 +469,8 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 
 static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id, const void *message)
 {
-    zigbee_motion_note_coordinator_activity();
-
-    switch (callback_id) {
-    case ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID:
-        if (message != NULL) {
-            zigbee_motion_on_off_attr_handler((const esp_zb_zcl_set_attr_value_message_t *)message);
-        }
-        break;
-    case ESP_ZB_CORE_CMD_DEFAULT_RESP_CB_ID:
-        if (message != NULL) {
-            const esp_zb_zcl_cmd_default_resp_message_t *resp = message;
-
-            if (s_report_waiting &&
-                resp->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING &&
-                resp->resp_to_cmd == ZCL_CMD_REPORT_ATTRIBUTES) {
-                if (resp->status_code == ESP_ZB_ZCL_STATUS_SUCCESS) {
-                    occupancy_report_complete(true);
-                } else {
-                    ESP_LOGW(TAG, "Occupancy report default response status: 0x%02x",
-                             resp->status_code);
-                    occupancy_report_complete(false);
-                }
-            }
-        }
-        break;
-    default:
-        break;
+    if (callback_id == ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID && message != NULL) {
+        zigbee_motion_on_off_attr_handler((const esp_zb_zcl_set_attr_value_message_t *)message);
     }
 
     return ESP_OK;
@@ -669,7 +533,6 @@ static void esp_zb_task(void *pvParameters)
 
     esp_zb_device_register(ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
-    esp_zb_zcl_command_send_status_handler_register(occupancy_command_send_status_cb);
     esp_zb_set_rx_on_when_idle(false);
     esp_zb_sleep_enable(false);
     esp_zb_set_primary_network_channel_set(1 << ESP_ZB_PRIMARY_CHANNEL);
@@ -686,18 +549,10 @@ TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t read
 
     s_wake_events = wake_events;
     s_ready_bit = ready_bit;
-    s_report_events = xEventGroupCreate();
-    if (s_report_events == NULL) {
-        ESP_LOGE(TAG, "Failed to create report event group");
-        return NULL;
-    }
     s_joined = false;
     s_pending_valid = false;
     s_pending_occupied = false;
     s_last_occupancy_state = false;
-    s_report_waiting = false;
-    s_report_aps_ok = false;
-    s_radio_hold_deadline_tick = 0;
     s_light_enabled = true;
     zigbee_motion_load_on_off_from_nvs();
 
@@ -757,39 +612,6 @@ bool zigbee_motion_light_enabled(void)
 
 bool zigbee_motion_occupancy_intent_pending(void)
 {
-    return s_pending_valid || s_report_waiting;
-}
-
-uint32_t zigbee_motion_radio_hold_remaining_ms(void)
-{
-    if (s_radio_hold_deadline_tick == 0) {
-        return 0;
-    }
-
-    TickType_t now = xTaskGetTickCount();
-    if ((int32_t)(s_radio_hold_deadline_tick - now) <= 0) {
-        s_radio_hold_deadline_tick = 0;
-        return 0;
-    }
-
-    return (uint32_t)((s_radio_hold_deadline_tick - now) * portTICK_PERIOD_MS);
-}
-
-void zigbee_motion_wait_radio_hold(void)
-{
-    uint32_t remaining_ms = zigbee_motion_radio_hold_remaining_ms();
-    if (remaining_ms == 0) {
-        return;
-    }
-
-    ESP_LOGI(TAG, "Keeping radio up for leave/interview (%lu ms)", (unsigned long)remaining_ms);
-    while ((remaining_ms = zigbee_motion_radio_hold_remaining_ms()) > 0) {
-        uint32_t slice_ms = remaining_ms > 1000 ? 1000 : remaining_ms;
-        vTaskDelay(pdMS_TO_TICKS(slice_ms));
-    }
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_set_rx_on_when_idle(false);
-    esp_zb_lock_release();
-    ESP_LOGI(TAG, "Radio hold window closed");
+    return s_pending_valid;
 }
 

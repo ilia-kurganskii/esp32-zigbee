@@ -91,9 +91,9 @@ void app_main(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Supervisor waiting for occupancy report response (Zigbee)");
+    ESP_LOGI(TAG, "Supervisor waiting for occupancy report (Zigbee)");
     xEventGroupWaitBits(wake_events, WAKE_ZB_READY_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "Occupancy acknowledged, entering deep sleep");
+    ESP_LOGI(TAG, "Occupancy queued, entering deep sleep");
     enter_deep_sleep();
 }
