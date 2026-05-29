@@ -5,23 +5,23 @@
  *
  * Light Animation Component
  *
- * This component monitors the motion driver state and runs LED animations
- * while motion is detected.
+ * Pixel 0: Zigbee link status. Pixel 1: motion status. Pixel 2+: main animation.
  */
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "light_animation.h"
 #include "light_driver.h"
 #include "motion_driver.h"
+#include "motion_status_led.h"
 #include "zigbee_motion.h"
 
 static const char *TAG = "LIGHT_ANIMATION";
 
-/* Motion-strip animation uses LEDs 1..N-1; LED 0 is reserved for Zigbee status. */
-#define STRIP_LED_FIRST_INDEX        1
+#define ANIM_LED_FIRST_INDEX         2
 
 static TaskHandle_t s_animation_task_handle = NULL;
 static EventGroupHandle_t s_wake_events = NULL;
@@ -38,51 +38,56 @@ static void animation_signal_done(void)
     }
 }
 
-/* Returns false if motion cleared during the sweep. */
+static void update_motion_status_led(void)
+{
+    motion_status_led_set(motion_driver_get_state());
+}
+
+static bool animation_time_remaining(int64_t end_us)
+{
+    return esp_timer_get_time() < end_us;
+}
+
 static bool led_active_animation(void)
 {
+    if (CONFIG_EXAMPLE_STRIP_LED_NUMBER <= ANIM_LED_FIRST_INDEX) {
+        return false;
+    }
+
     uint8_t r = 255;
     uint8_t g = 180;
     uint8_t b = 0;
 
-    for (int led = STRIP_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
-        if (!motion_driver_get_state()) {
-            return false;
-        }
+    for (int led = ANIM_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
         light_driver_set_pixel(led, r, g, b);
         vTaskDelay(pdMS_TO_TICKS(50));
         light_driver_set_pixel(led, 0, 0, 0);
     }
-    for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led > STRIP_LED_FIRST_INDEX; led--) {
-        if (!motion_driver_get_state()) {
-            return false;
-        }
+    for (int led = CONFIG_EXAMPLE_STRIP_LED_NUMBER - 2; led >= ANIM_LED_FIRST_INDEX; led--) {
         light_driver_set_pixel(led, r, g, b);
         vTaskDelay(pdMS_TO_TICKS(50));
         light_driver_set_pixel(led, 0, 0, 0);
     }
 
-    light_driver_set_pixel(STRIP_LED_FIRST_INDEX, r, g, b);
+    light_driver_set_pixel(ANIM_LED_FIRST_INDEX, r, g, b);
     return true;
 }
 
 static void led_phase_out_animation(void)
 {
+    if (CONFIG_EXAMPLE_STRIP_LED_NUMBER <= ANIM_LED_FIRST_INDEX) {
+        return;
+    }
+
     uint8_t r = 255;
     uint8_t g = 180;
     uint8_t b = 0;
 
-    for (int led = STRIP_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
+    for (int led = ANIM_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
         light_driver_set_pixel(led, r, g, b);
         vTaskDelay(pdMS_TO_TICKS(100));
         light_driver_set_pixel(led, 0, 0, 0);
     }
-}
-
-static void animation_task_end(void)
-{
-    s_animation_task_handle = NULL;
-    vTaskDelete(NULL);
 }
 
 static void animation_task(void *pvParameters)
@@ -91,41 +96,40 @@ static void animation_task(void *pvParameters)
 
     ESP_LOGI(TAG, "Animation task started");
 
-    /* PIR (AM312) needs a moment after GPIO wake before the level is stable. */
-    vTaskDelay(pdMS_TO_TICKS(100));
+    motion_driver_wait_settled();
+    update_motion_status_led();
 
-    if (!motion_driver_get_state()) {
-        ESP_LOGI(TAG, "No motion after settle, animation skipped");
-        animation_signal_done();
-        animation_task_end();
-        return;
-    }
+    const bool motion = motion_driver_get_state_debounced();
+    const bool light_enabled = zigbee_motion_light_enabled();
+    const int64_t end_us = esp_timer_get_time() + (int64_t)LIGHT_ANIMATION_MAX_MS * 1000;
 
-    if (!zigbee_motion_light_enabled()) {
-        ESP_LOGI(TAG, "Light disabled via On/Off, animation skipped");
-        animation_signal_done();
-        animation_task_end();
-        return;
-    }
+    if (!motion || !light_enabled) {
+        ESP_LOGI(TAG, "Main animation skipped (motion=%d, light=%d)", motion, light_enabled);
+    } else {
+        ESP_LOGI(TAG, "Motion detected, running strip animation for %d ms", LIGHT_ANIMATION_MAX_MS);
 
-    ESP_LOGI(TAG, "Motion detected, running strip animation");
+        while (animation_time_remaining(end_us) && zigbee_motion_light_enabled()) {
+            update_motion_status_led();
+            led_active_animation();
+        }
 
-    while (motion_driver_get_state() && zigbee_motion_light_enabled()) {
-        if (!led_active_animation()) {
-            break;
+        for (int led = ANIM_LED_FIRST_INDEX; led < CONFIG_EXAMPLE_STRIP_LED_NUMBER; led++) {
+            light_driver_set_pixel(led, 0, 0, 0);
+        }
+
+        if (!motion_driver_get_state()) {
+            ESP_LOGI(TAG, "Motion cleared, phase out");
+            led_phase_out_animation();
         }
     }
 
-    /* Unblock sleep before cosmetic phase-out (strip may be cut off by deep sleep). */
     animation_signal_done();
 
-    if (!motion_driver_get_state()) {
-        ESP_LOGI(TAG, "Motion cleared, phase out");
-        led_phase_out_animation();
+    /* Keep motion indicator in sync until deep sleep (PIR may clear after occupancy). */
+    while (true) {
+        update_motion_status_led();
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
-
-    ESP_LOGI(TAG, "Animation task finished");
-    animation_task_end();
 }
 
 TaskHandle_t light_animation_init(EventGroupHandle_t wake_events, EventBits_t done_bit)

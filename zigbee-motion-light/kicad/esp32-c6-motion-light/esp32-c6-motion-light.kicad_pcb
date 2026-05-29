@@ -3946,7 +3946,7 @@
 				)
 			)
 		)
-		(property "LCSC Part" "C17557"
+		(property "LCSC Part" "C17556"
 			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)

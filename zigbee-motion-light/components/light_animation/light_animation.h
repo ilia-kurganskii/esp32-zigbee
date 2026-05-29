@@ -13,6 +13,9 @@
 extern "C" {
 #endif
 
+/** Maximum duration of the main strip animation per wake cycle (ms). */
+#define LIGHT_ANIMATION_MAX_MS  (30 * 1000)
+
 /**
  * @brief Initialize and start the light animation component.
  *

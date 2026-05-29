@@ -47,6 +47,27 @@ bool motion_driver_get_state(void)
     return gpio_get_level(MOTION_SENSOR_GPIO) == (MOTION_DETECTED_HIGH ? 1 : 0);
 }
 
+bool motion_driver_get_state_debounced(void)
+{
+    int active_samples = 0;
+
+    for (int i = 0; i < 5; i++) {
+        if (motion_driver_get_state()) {
+            active_samples++;
+        }
+        if (i + 1 < 5) {
+            vTaskDelay(pdMS_TO_TICKS(40));
+        }
+    }
+
+    return active_samples >= 3;
+}
+
+void motion_driver_wait_settled(void)
+{
+    vTaskDelay(pdMS_TO_TICKS(MOTION_PIR_SETTLE_MS));
+}
+
 bool motion_driver_was_motion_detected(void)
 {
     bool detected = motion_detected_flag;

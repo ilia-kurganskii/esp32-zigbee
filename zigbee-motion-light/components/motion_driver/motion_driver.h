@@ -28,6 +28,9 @@ extern "C" {
 #define AM312_RANGE_MAX             5.0     // Maximum detection range (meters)
 #define AM312_FOV                   100     // Field of view (degrees)
 
+/** AM312 stabilization after ESP wake from deep sleep (ms). */
+#define MOTION_PIR_SETTLE_MS        2000
+
 /**
  * @brief Initialize motion sensor driver.
  *
@@ -42,6 +45,16 @@ void motion_driver_init(void);
  * @return true if motion is detected, false otherwise
  */
 bool motion_driver_get_state(void);
+
+/**
+ * @brief Sample the PIR several times; true if a majority read motion active.
+ */
+bool motion_driver_get_state_debounced(void);
+
+/**
+ * @brief Wait for AM312 to stabilize after deep-sleep wake.
+ */
+void motion_driver_wait_settled(void);
 
 /**
  * @brief Check if motion was detected (clears the flag).

@@ -300,10 +300,10 @@ static void monitor_task(void *pvParameters)
 
     ESP_LOGI(TAG, "Monitor task started");
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    motion_driver_wait_settled();
 
     for (;;) {
-        bool motion = motion_driver_get_state();
+        bool motion = motion_driver_get_state_debounced();
         ESP_LOGI(TAG, "Publishing occupancy (%s)", motion ? "OCCUPIED" : "UNOCCUPIED");
 
         if (send_occupancy_to_network(motion, false) == ESP_OK) {
