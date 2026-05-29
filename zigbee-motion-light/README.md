@@ -64,6 +64,23 @@ This basic version builds successfully. To add Zigbee functionality:
 3. Configure Zigbee settings in `sdkconfig.defaults`
 4. Implement Zigbee occupancy and on/off clusters
 
+## Deep sleep & Zigbee rejoin
+
+The device wakes from deep sleep, rejoins the Zigbee network using credentials stored in the `zb_storage` flash partition, sends occupancy, and sleeps again. Typical rejoin time is **~0.7–2 s**.
+
+See **[docs/nvram-rejoin-and-diagnostics.md](docs/nvram-rejoin-and-diagnostics.md)** for:
+
+- NVRAM snapshot log format and how to verify `zb_storage` restore
+- Expected serial output after sleep/wake
+- Signal handler behavior (`DEVICE_REBOOT` vs steering)
+- Flash erase vs firmware-only update
+
+For a clean pairing test:
+
+```bash
+idf.py -p <PORT> erase-flash flash monitor
+```
+
 ## Configuration
 
 Edit `sdkconfig.defaults` for custom settings or use `idf.py menuconfig`.

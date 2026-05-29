@@ -25,9 +25,6 @@
 #define ESP_ZB_ZCL_ATTR_OCCUPANCY_ID                      0x0000
 #define ESP_ZB_ZCL_ATTR_OCCUPANCY_SENSOR_TYPE_ID         0x0001
 
-/* On/Off cluster attributes */
-#define ESP_ZB_ZCL_ATTR_ON_OFF_ID                        0x0000
-
 /**
  * @brief Initialize Zigbee motion light.
  *

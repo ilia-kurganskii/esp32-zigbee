@@ -29,7 +29,7 @@ extern "C" {
  * (Basic, Identify, On/Off, Occupancy Sensing), and starts the Zigbee task.
  *
  * @param wake_events Event group to signal when the Zigbee track is ready for sleep
- * @param ready_bit   Bit to set when joined, occupancy applied, and monitor done
+ * @param ready_bit   Bit to set when joined and occupancy report is queued
  * @return Task handle on success, NULL on failure
  */
 TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t ready_bit);
@@ -38,7 +38,8 @@ TaskHandle_t zigbee_motion_init(EventGroupHandle_t wake_events, EventBits_t read
 /**
  * @brief Send occupancy report to Zigbee network.
  *
- * When joined, updates the Occupancy Sensing cluster on state change only.
+ * When joined, updates the Occupancy Sensing cluster and queues a report to the
+ * coordinator (fire-and-forget on the Zigbee stack thread).
  * When not yet joined, stores the latest requested state and flushes after join.
  *
  * @param occupied true if motion detected, false otherwise
@@ -57,19 +58,17 @@ esp_err_t zigbee_motion_publish_occupancy_refresh(bool occupied);
  */
 bool zigbee_motion_is_joined(void);
 
-
+/**
+ * @brief True when the coordinator On/Off state allows the motion LED strip.
+ *
+ * Persisted in NVS so deep-sleep wake cycles respect OFF before Zigbee rejoins.
+ */
+bool zigbee_motion_light_enabled(void);
 
 /**
- * @brief True while a requested occupancy value is still pending (queued before join, or must retry after a failed apply).
+ * @brief True while occupancy is queued before join.
  */
 bool zigbee_motion_occupancy_intent_pending(void);
-
-/**
- * @brief Check if Zigbee task has finished.
- *
- * @return true if Zigbee task is finished, false otherwise
- */
-bool zigbee_motion_is_finished(void);
 
 #ifdef __cplusplus
 }
